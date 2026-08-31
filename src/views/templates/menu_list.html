@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lista de Menus - Meu Chatbot</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+    <header class="header">
+        <div class="header-brand">
+            <div class="logo">CB</div>
+            <h1>Painel de Administração</h1>
+        </div>
+
+        <nav class="nav-links">
+            <a href="/" class="nav-item">Início</a>
+            <a href="/menus" class="nav-item active">Lista Menus</a>
+            <a href="/menus/novo" class="nav-item">Formulário Menus</a>
+            <a href="/usuarios" class="nav-item">Usuários</a>
+            <a href="/historico" class="nav-item">Histórico</a>
+            <a href="/login" class="nav-item">Login</a>
+        </nav>
+    </header>
+
+    <main class="main-container">
+        <section class="page-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h2 class="page-title">Estrutura de Menus</h2>
+                <p class="page-subtitle">Visualização de todos os menus e submenus configurados no chatbot.</p>
+            </div>
+            <a href="/menus/novo" class="btn btn-primary">+ Novo Menu</a>
+        </section>
+
+        <section class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Nome Interno</th>
+                        <th>Texto de Seleção</th>
+                        <th>Mensagem</th>
+                        <th>Menu Pai</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>1</td>
+                        <td>inicio</td>
+                        <td>Menu Principal</td>
+                        <td>Olá! Bem-vindo ao atendimento. Escolha uma opção:</td>
+                        <td>-</td>
+                        <td>
+                            <a href="/menus/1/editar" class="btn btn-secondary" style="padding: 0.35rem 0.75rem; font-size: 0.85rem;">Editar</a>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>2</td>
+                        <td>suporte</td>
+                        <td>1 - Suporte Técnico</td>
+                        <td>Você selecionou suporte técnico. Como podemos ajudar?</td>
+                        <td>1 (inicio)</td>
+                        <td>
+                            <a href="/menus/2/editar" class="btn btn-secondary" style="padding: 0.35rem 0.75rem; font-size: 0.85rem;">Editar</a>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+    </main>
+
+    <footer class="footer">
+        Todos os direitos reservados UDESC &copy; 2026
+    </footer>
+</body>
+
+</html>
