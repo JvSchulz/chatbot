@@ -3,13 +3,13 @@
     --card-bg: #ffffff;
     --text-primary: #1e293b;
     --text-secondary: #64748b;
-    --primary-color: #2563eb;
-    --primary-hover: #1d4ed8;
+    --primary-color: #0A9854;
+    --primary-hover: #075f35;
     --border-color: #e2e8f0;
-    --header-bg: #0f172a;
+    --header-bg: #0A9854;
     --header-text: #ffffff;
-    --footer-bg: #1e293b;
-    --footer-text: #94a3b8;
+    --footer-bg: #0A9854;
+    --footer-text: white;
     --radius: 8px;
     --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
 }
@@ -80,7 +80,8 @@ body {
     transition: background-color 0.2s, color 0.2s;
 }
 
-.nav-item:hover, .nav-item.active {
+.nav-item:hover,
+.nav-item.active {
     background-color: rgba(255, 255, 255, 0.15);
     color: #ffffff;
 }
@@ -125,7 +126,8 @@ body {
     box-shadow: var(--shadow);
 }
 
-.card h2, .card h3 {
+.card h2,
+.card h3 {
     font-size: 1.15rem;
     margin-bottom: 0.5rem;
     color: var(--text-primary);
@@ -160,7 +162,9 @@ body {
     color: var(--text-primary);
 }
 
-.form-input, .form-select, .form-textarea {
+.form-input,
+.form-select,
+.form-textarea {
     width: 100%;
     padding: 0.625rem 0.875rem;
     border: 1px solid var(--border-color);
@@ -172,7 +176,9 @@ body {
     transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.form-input:focus, .form-select:focus, .form-textarea:focus {
+.form-input:focus,
+.form-select:focus,
+.form-textarea:focus {
     border-color: var(--primary-color);
     box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
 }

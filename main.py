@@ -14,6 +14,12 @@ app.mount(
     name="static",
 )
 
+app.mount(
+    "/assets",
+    StaticFiles(directory=BASE_DIR / "src" / "assets"),
+    name="assets",
+)
+
 templates = Jinja2Templates(directory=BASE_DIR / "src" / "views" / "templates")
 
 
