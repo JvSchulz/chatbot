@@ -42,6 +42,7 @@ wa = WhatsApp(
     webhook_endpoint="/webhook",
     validate_updates=False,
 )
+
 setup_webhook_handlers(wa)
 
 
