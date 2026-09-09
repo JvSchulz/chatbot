@@ -1,4 +1,5 @@
 from pathlib import Path
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -8,13 +9,24 @@ from src.controllers.menus_controller import router as menus_router
 from src.controllers.users_controller import router as users_router
 from src.controllers.webhook_controller import setup_webhook_handlers
 from dotenv import load_dotenv
+from src.core.db import create_db_and_tables
+from src.models import menu_model, user_model, chat_history_model
 import os
 import logging
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Runs when FastAPI starts up
+    create_db_and_tables()
+    yield
+    # Code here would run on server shutdown (if needed)
+
+
+app = FastAPI(lifespan=lifespan)
 
 BASE_DIR = Path(__file__).resolve().parent
 
