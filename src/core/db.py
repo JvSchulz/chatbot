@@ -1,9 +1,12 @@
+from pathlib import Path
 from sqlmodel import SQLModel, create_engine, Session
 from sqlalchemy import event
 from typing import Annotated
 from fastapi import Depends
 
-sqlite_url = "sqlite:///database.db"
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+DB_PATH = BASE_DIR / "database.db"
+sqlite_url = f"sqlite:///{DB_PATH}"
 engine = create_engine(sqlite_url, connect_args={"check_same_thread": False})
 
 
