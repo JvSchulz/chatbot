@@ -1,5 +1,5 @@
-from sqlmodel import SQLModel, Field, Relationship
 from typing import Literal, Optional
+from sqlmodel import SQLModel, Field, Relationship
 
 from src.models.timestamp_model import TimestampModel
 
@@ -13,7 +13,7 @@ class MenuBase(TimestampModel):
 
 
 class Menu(MenuBase, table=True):
-    __tablename__: Literal["menus"] = "menus"
+    __tablename__: Literal["menus"] = "menus"  # pyright: ignore[reportIncompatibleVariableOverride]
 
     id: int | None = Field(default=None, primary_key=True)
     parent_menu: Optional["Menu"] = Relationship(

@@ -11,6 +11,6 @@ class UserBase(TimestampModel):
 
 
 class User(UserBase, table=True):
-    __tablename__: Literal["users"] = "users"
+    __tablename__: Literal["users"] = "users"  # pyright: ignore[reportIncompatibleVariableOverride]
 
     id: int | None = Field(default=None, primary_key=True)
