@@ -10,7 +10,7 @@ from src.controllers.users_controller import router as users_router
 from src.controllers.webhook_controller import setup_webhook_handlers
 from dotenv import load_dotenv
 from src.core.db import create_db_and_tables
-from src.models import menu_model, user_model, chat_history_model
+from src.models import menu_model, user_model, chat_history_model, user_session_model
 import os
 import logging
 
