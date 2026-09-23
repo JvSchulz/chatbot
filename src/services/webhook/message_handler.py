@@ -14,7 +14,12 @@ from pywa.types.message import Message
 from pywa.types.message_status import MessageStatus
 from src.models.menu_model import Menu
 from src.services.menu_service import get_menu_by_id, get_root_menus, get_submenus
-from src.services.webhook.chat_history_log import is_first_interaction, save_message_log
+from src.services.session_service import get_or_create_session, update_session_activity
+from src.services.webhook.chat_history_log import (
+    is_first_interaction,
+    save_message_log,
+    save_bot_reply_log,
+)
 
 logger = logging.getLogger("Chatbot")
 
@@ -89,11 +94,17 @@ def handle_message(client: WhatsApp, msg: Message) -> None:
     save_message_log(msg=msg, accessed_menu_id=None)
 
     # 5. Despacha a mensagem ao cliente via WhatsApp
-    dispatch_reply(
+    msg_id = dispatch_reply(
         client=client,
         to=context.target_phone,
         response_payload=response_payload,
     )
+    if msg_id:
+        save_bot_reply_log(
+            recipient_id=context.sender_phone,
+            content=response_payload["text"],
+            accessed_menu_id=None,
+        )
 
 
 def handle_callback_button(client: WhatsApp, btn: CallbackButton) -> None:
@@ -109,6 +120,7 @@ def handle_callback_button(client: WhatsApp, btn: CallbackButton) -> None:
         logger.warning("[CALLBACK BUTTON] Recebido sem wa_id de usuário válido.")
         return
 
+    update_session_activity(wa_id=user_id)
     payload = btn.data
     logger.info(f"[CALLBACK BUTTON] De: {user_id} | Payload: '{payload}'")
 
@@ -142,6 +154,7 @@ def handle_callback_selection(client: WhatsApp, sel: CallbackSelection) -> None:
         logger.warning("[CALLBACK SELECTION] Recebido sem wa_id de usuário válido.")
         return
 
+    update_session_activity(wa_id=user_id)
     payload = sel.data
     logger.info(f"[CALLBACK SELECTION] De: {user_id} | Payload: '{payload}'")
 
@@ -188,6 +201,24 @@ def handle_status(_: WhatsApp, status: MessageStatus) -> None:
         )
 
 
+def normalize_phone_number(phone: str | None) -> str:
+    """
+    Normaliza o número de telefone para o padrão brasileiro com 9º dígito quando aplicável.
+
+    Args:
+        phone: String com o número de telefone bruto ou None.
+
+    Returns:
+        Número de telefone normalizado.
+    """
+    if not phone:
+        return ""
+    clean = str(phone).strip()
+    if clean.startswith("55") and len(clean) == 12:
+        return f"{clean[:4]}9{clean[4:]}"
+    return clean
+
+
 def extract_message_context(msg: Message) -> MessageContext | None:
     """
     Extrai e normaliza os dados essenciais da mensagem recebida via WhatsApp.
@@ -204,11 +235,7 @@ def extract_message_context(msg: Message) -> MessageContext | None:
 
     user_name = msg.from_user.name or "Usuário"
     message_text = msg.text or ""
-
-    if sender_phone.startswith("55") and len(sender_phone) == 12:
-        target_phone = f"{sender_phone[:4]}9{sender_phone[4:]}"
-    else:
-        target_phone = sender_phone
+    target_phone = normalize_phone_number(sender_phone)
 
     return MessageContext(
         sender_phone=sender_phone,
@@ -228,10 +255,8 @@ def identify_session_mode(sender_id: str) -> str:
     Returns:
         String indicando o modo ativo (SESSION_MODE_MENU ou SESSION_MODE_CONVERSATIONAL).
     """
-    # TODO: Consultar persistência de sessão do usuário no banco de dados.
-    # Por padrão, mensagens recebidas fora de fluxos conversacionais seguem pelo menu.
-    _ = sender_id
-    return SESSION_MODE_MENU
+    session = get_or_create_session(wa_id=sender_id)
+    return session.mode
 
 
 def build_mode_response(
@@ -329,13 +354,25 @@ def handle_menu_navigation(
         return
 
     submenus = get_submenus(parent_id=menu_id)
+    target_phone = normalize_phone_number(user_id)
 
     if submenus:
         response = build_child_response_object(
             menus=submenus,
             intro_text=f"{menu.name}\n\n{menu.message}",
         )
-        callback.reply(**response)
+        msg_id = dispatch_reply(
+            client=client,
+            to=target_phone,
+            response_payload=response,
+        )
+        if msg_id:
+            save_bot_reply_log(
+                recipient_id=user_id,
+                content=response["text"],
+                accessed_menu_id=menu_id,
+            )
+        update_session_activity(wa_id=user_id, menu_id=menu_id)
         return
 
     # Menu folha: exibe mensagem final e botões de retorno (anterior e início)
@@ -353,10 +390,23 @@ def handle_menu_navigation(
             callback_data=ACTION_ROOT,
         )
     )
-    callback.reply(
-        text=f"{menu.message}\n\nDeseja realizar outra consulta?",
-        buttons=leaf_buttons,
+    leaf_text = f"{menu.message}\n\nDeseja realizar outra consulta?"
+    leaf_payload = {
+        "text": leaf_text,
+        "buttons": leaf_buttons,
+    }
+    msg_id = dispatch_reply(
+        client=client,
+        to=target_phone,
+        response_payload=leaf_payload,
     )
+    if msg_id:
+        save_bot_reply_log(
+            recipient_id=user_id,
+            content=leaf_text,
+            accessed_menu_id=menu_id,
+        )
+    update_session_activity(wa_id=user_id, menu_id=menu_id)
 
 
 def send_root_menu(
@@ -374,12 +424,20 @@ def send_root_menu(
     """
     root_menus = get_root_menus()
     response = build_root_response_object(menus=root_menus, intro_text=intro_text)
+    target_phone = normalize_phone_number(to)
 
-    client.send_message(
-        to=to,
-        text=response["text"],
-        buttons=response["buttons"],
+    msg_id = dispatch_reply(
+        client=client,
+        to=target_phone,
+        response_payload=response,
     )
+    if msg_id:
+        save_bot_reply_log(
+            recipient_id=to,
+            content=response["text"],
+            accessed_menu_id=None,
+        )
+    update_session_activity(wa_id=to, menu_id=None)
 
 
 def build_root_response_object(
