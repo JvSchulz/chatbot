@@ -1,0 +1,19 @@
+{
+  "venvPath": "/home/rhyno/code/codespace/chatbot",
+  "venv": ".venv",
+  "extraPaths": [
+    "/home/rhyno/code/codespace/chatbot/.venv/lib/python3.12/site-packages",
+    "/home/rhyno/code/codespace/chatbot"
+  ],
+  "pythonVersion": "3.12",
+  "include": [
+    "src",
+    "tests",
+    "main.py"
+  ],
+  "exclude": [
+    "**/mutants/**",
+    "**/.venv/**",
+    "**/venv/**"
+  ]
+}
