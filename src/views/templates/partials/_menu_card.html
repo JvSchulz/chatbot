@@ -1,0 +1,115 @@
+<div class="form-card" style="margin: 0; max-width: 100%;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+        <div>
+            <h2 class="page-title" style="font-size: 1.35rem; margin-bottom: 0.25rem;">
+                {% if menu and menu.id %}Editar Menu: {{ menu.name }}{% else %}Novo Menu{% endif %}
+            </h2>
+            <p class="page-subtitle" style="font-size: 0.85rem;">
+                Configure nome, botão e mensagem de resposta deste nó da árvore.
+            </p>
+        </div>
+        {% if menu and menu.id %}
+        <button type="button"
+                hx-delete="/menus/{{ menu.id }}"
+                hx-target="#detail-pane"
+                hx-swap="innerHTML"
+                hx-confirm="Tem certeza que deseja excluir o menu '{{ menu.name }}'?"
+                class="btn btn-secondary"
+                style="color: #dc2626; border-color: #fca5a5; font-size: 0.85rem; padding: 0.4rem 0.8rem;">
+            Excluir
+        </button>
+        {% endif %}
+    </div>
+
+    <div id="menu-error">
+        {% if error %}
+        <div class="alert alert-danger" style="margin-bottom: 1rem; padding: 0.75rem 1rem; background-color: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: var(--radius);">
+            {{ error }}
+        </div>
+        {% endif %}
+    </div>
+
+    <form hx-post="{% if menu and menu.id %}/menus/{{ menu.id }}{% else %}/menus{% endif %}"
+          hx-target="#detail-pane"
+          hx-swap="innerHTML">
+
+        <div class="form-group">
+            <label for="name">Nome Interno</label>
+            <input type="text"
+                   id="name"
+                   name="name"
+                   class="form-input"
+                   placeholder="Ex: menu_atendimento"
+                   value="{% if menu %}{{ menu.name }}{% else %}Novo Menu{% endif %}"
+                   required>
+        </div>
+
+        <div class="form-group">
+            <label for="selection_name">Texto de Seleção (Botão no WhatsApp)</label>
+            <input type="text"
+                   id="selection_name"
+                   name="selection_name"
+                   class="form-input"
+                   placeholder="Ex: 1 - Falar com Atendente"
+                   value="{% if menu %}{{ menu.selection_name }}{% endif %}"
+                   required>
+        </div>
+
+        <div class="form-group">
+            <label for="message">Mensagem de Resposta</label>
+            <textarea id="message"
+                      name="message"
+                      class="form-textarea"
+                      rows="4"
+                      placeholder="Mensagem exibida ao selecionar este item"
+                      required>{% if menu %}{{ menu.message }}{% endif %}</textarea>
+        </div>
+
+        <!-- Checkbox de Menu Raiz -->
+        <div class="form-group" style="margin-bottom: 1.25rem;">
+            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: {% if can_toggle_root %}pointer{% else %}not-allowed{% endif %}; font-weight: 600;">
+                <input type="checkbox"
+                       id="is_root"
+                       name="is_root"
+                       value="true"
+                       {% if is_current_root %}checked{% endif %}
+                       {% if not can_toggle_root %}disabled style="opacity: 0.5;"{% endif %}
+                       onchange="const pc = document.getElementById('parent-container'); if (pc) pc.style.display = this.checked ? 'none' : 'block';">
+                <span>Definir como Menu Raiz (Principal)</span>
+            </label>
+            {% if not can_toggle_root and root_menu %}
+            <small style="color: var(--text-secondary); display: block; margin-top: 0.25rem;">
+                O menu '{{ root_menu.name }}' já é a raiz. Desmarque-o antes para definir outro menu como raiz.
+            </small>
+            {% endif %}
+        </div>
+
+        <!-- Seletor de Menu Pai (apenas para não-raiz) -->
+        <div id="parent-container" class="form-group" style="{% if is_current_root %}display: none;{% endif %}">
+            <label for="parent_id">Menu Pai</label>
+            <select id="parent_id" name="parent_id" class="form-select">
+                <option value="" disabled {% if not menu or not menu.parent_id %}selected{% endif %}>Selecione o Menu Pai...</option>
+                {% for parent in valid_parents %}
+                <option value="{{ parent.id }}" {% if menu and menu.parent_id == parent.id %}selected{% endif %}>
+                    {{ parent.name }} ({{ parent.selection_name }})
+                </option>
+                {% endfor %}
+            </select>
+            <small style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.25rem; display: block;">
+                Menus que gerariam ciclos hierárquicos não são exibidos nesta lista.
+            </small>
+        </div>
+
+        <div style="display: flex; gap: 0.75rem; margin-top: 1.5rem;">
+            <button type="submit" class="btn btn-primary">
+                Salvar Menu
+            </button>
+            <a href="javascript:void(0)"
+               hx-get="{% if menu and menu.id %}/menus/{{ menu.id }}/card{% else %}/menus/novo/card{% endif %}"
+               hx-target="#detail-pane"
+               class="btn btn-secondary">
+                Limpar
+            </a>
+        </div>
+    </form>
+</div>

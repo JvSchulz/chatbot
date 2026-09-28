@@ -1,0 +1,183 @@
+"""
+Testes de integração para as rotas administrativas de MenusController.
+"""
+
+from fastapi.testclient import TestClient
+from sqlmodel import Session
+from src.models.menu_model import Menu
+from main import app
+
+
+def test_get_menus_renders_split_view_page(session: Session):
+    """
+    GET /menus deve retornar status 200 e carregar o layout master-detail.
+    """
+    m1 = Menu(name="Graduação", selection_name="Grad", message="Opções", parent_id=None)
+    session.add(m1)
+    session.commit()
+
+    client = TestClient(app)
+    response = client.get("/menus")
+
+    assert response.status_code == 200
+    assert "Graduação" in response.text
+    assert 'id="detail-pane"' in response.text
+
+
+def test_get_menus_shows_warning_when_no_root(session: Session):
+    """
+    GET /menus sem menu raiz deve exibir banner vermelho de alerta.
+    """
+    client = TestClient(app)
+    response = client.get("/menus")
+
+    assert response.status_code == 200
+    assert "Atenção: Nenhum menu está definido como Raiz" in response.text
+
+
+def test_get_menu_list_partial(session: Session):
+    """
+    GET /menus/lista deve retornar o fragmento HTML com itens da lista.
+    """
+    m1 = Menu(name="ListaMenu", selection_name="LM", message="Msg", parent_id=None)
+    session.add(m1)
+    session.commit()
+
+    client = TestClient(app)
+    response = client.get(f"/menus/lista?selected_id={m1.id}")
+    assert response.status_code == 200
+    assert "ListaMenu" in response.text
+
+
+def test_get_menu_card_partial_via_htmx(session: Session):
+    """
+    GET /menus/{id}/card deve retornar apenas o partial do formulário para o menu.
+    """
+    m1 = Menu(name="Pesquisa", selection_name="Pesq", message="Iniciação científica", parent_id=None)
+    session.add(m1)
+    session.commit()
+    session.refresh(m1)
+
+    client = TestClient(app)
+    response = client.get(f"/menus/{m1.id}/card", headers={"HX-Request": "true"})
+
+    assert response.status_code == 200
+    assert "Pesquisa" in response.text
+    assert "Iniciação científica" in response.text
+    assert "<form" in response.text
+
+
+def test_get_menu_card_not_found(session: Session):
+    """
+    GET /menus/{id}/card com ID inexistente deve retornar 404.
+    """
+    client = TestClient(app)
+    response = client.get("/menus/99999/card")
+    assert response.status_code == 404
+
+
+def test_get_new_menu_card_provides_clean_draft(session: Session):
+    """
+    GET /menus/novo/card deve carregar formulário com nome default 'Novo Menu'.
+    """
+    client = TestClient(app)
+    response = client.get("/menus/novo/card", headers={"HX-Request": "true"})
+
+    assert response.status_code == 200
+    assert "Novo Menu" in response.text
+
+
+def test_post_create_root_menu_success(session: Session):
+    """
+    POST /menus com is_root=true deve criar a raiz com sucesso.
+    """
+    client = TestClient(app)
+    payload = {
+        "name": "Extensão Universitária",
+        "selection_name": "Ext",
+        "message": "Projetos de extensão",
+        "is_root": "true",
+    }
+    response = client.post("/menus", data=payload, headers={"HX-Request": "true"})
+
+    assert response.status_code == 200
+    assert "Extensão Universitária" in response.text
+    assert "menuListChanged" in response.headers.get("HX-Trigger", "")
+
+
+def test_post_create_second_root_rejected_with_422(session: Session):
+    """
+    POST /menus tentando criar uma segunda raiz deve retornar 422.
+    """
+    m1 = Menu(name="Primeira Raiz", selection_name="R1", message="M1", parent_id=None)
+    session.add(m1)
+    session.commit()
+
+    client = TestClient(app)
+    payload = {
+        "name": "Segunda Raiz",
+        "selection_name": "R2",
+        "message": "M2",
+        "is_root": "true",
+    }
+    response = client.post("/menus", data=payload, headers={"HX-Request": "true"})
+
+    assert response.status_code == 422
+    assert "Já existe um menu raiz definido" in response.text
+
+
+def test_post_update_menu_cycle_rejection(session: Session):
+    """
+    POST /menus/{id} deve rejeitar ciclo hierárquico com código 422.
+    """
+    root = Menu(name="Pai", selection_name="P", message="P", parent_id=None)
+    session.add(root)
+    session.commit()
+    session.refresh(root)
+
+    child = Menu(name="Filho", selection_name="F", message="F", parent_id=root.id)
+    session.add(child)
+    session.commit()
+    session.refresh(child)
+
+    client = TestClient(app)
+    payload = {
+        "name": "Pai",
+        "selection_name": "P",
+        "message": "P",
+        "parent_id": str(child.id),
+        "is_root": "false",
+    }
+    response = client.post(f"/menus/{root.id}", data=payload, headers={"HX-Request": "true"})
+
+    assert response.status_code == 422
+    assert "Ciclo" in response.text
+
+
+def test_delete_menu_with_submenus_blocked(session: Session):
+    """
+    DELETE /menus/{id} deve rejeitar exclusão de menu com filhos com status 400.
+    """
+    parent = Menu(name="Diretoria", selection_name="Dir", message="Dir", parent_id=None)
+    session.add(parent)
+    session.commit()
+    session.refresh(parent)
+
+    child = Menu(name="Secretaria", selection_name="Sec", message="Sec", parent_id=parent.id)
+    session.add(child)
+    session.commit()
+
+    client = TestClient(app)
+    response = client.delete(f"/menus/{parent.id}", headers={"HX-Request": "true"})
+
+    assert response.status_code == 400
+    assert "submenus vinculados" in response.text
+
+
+def test_delete_menu_not_found_returns_400(session: Session):
+    """
+    DELETE /menus/{id} com ID inexistente deve capturar ValueError e retornar 400.
+    """
+    client = TestClient(app)
+    response = client.delete("/menus/99999", headers={"HX-Request": "true"})
+    assert response.status_code == 400

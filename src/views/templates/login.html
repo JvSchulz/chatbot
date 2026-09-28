@@ -1,16 +1,14 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
+{% extends "index.html" %}
 
-<head>
-    <meta charset="UTF-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Painel de Administração</title>
-    <link rel="stylesheet" href="/static/style.css">
-</head>
+{% block title %}Login - Painel de Administração{% endblock %}
+{% block nav_menus %}{% endblock %}
+{% block nav_login %}active{% endblock %}
 
-<body style="align-items: center; justify-content: center;">
-    <main class="form-card" style="width: 100%; max-width: 400px; margin: auto;">
+{% block header %}{% endblock %}
+
+{% block content %}
+<div style="display: flex; align-items: center; justify-content: center; min-height: 70vh;">
+    <div class="form-card" style="width: 100%; max-width: 400px; margin: auto;">
         <div style="text-align: center; margin-bottom: 1.5rem;">
             <div class="logo" style="margin: 0 auto 1rem; width: 44px; height: 44px; font-size: 1.2rem; background-color: var(--primary-color); border-radius: var(--radius); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">CB</div>
             <h2 style="font-size: 1.4rem; font-weight: 700;">Login Administrativo</h2>
@@ -30,7 +28,8 @@
 
             <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem;">Entrar</button>
         </form>
-    </main>
-</body>
+    </div>
+</div>
+{% endblock %}
 
-</html>
+{% block footer %}{% endblock %}

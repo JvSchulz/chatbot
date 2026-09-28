@@ -1,0 +1,24 @@
+{% for user in users %}
+<a href="javascript:void(0)"
+   hx-get="/usuarios/{{ user.id }}/card"
+   hx-target="#user-detail-pane"
+   hx-swap="innerHTML"
+   class="split-list-item {% if selected_user and selected_user.id == user.id %}active{% endif %}">
+    <div>
+        <strong>{{ user.login }}</strong>
+    </div>
+    {% if user.is_admin %}
+    <span style="font-size: 0.75rem; background: #e6f6ee; padding: 0.15rem 0.4rem; border-radius: 4px; color: var(--primary-color);">
+        Admin
+    </span>
+    {% else %}
+    <span style="font-size: 0.75rem; background: #e2e8f0; padding: 0.15rem 0.4rem; border-radius: 4px; color: var(--text-secondary);">
+        Usuário
+    </span>
+    {% endif %}
+</a>
+{% else %}
+<div style="padding: 1.5rem; text-align: center; color: var(--text-secondary);">
+    Nenhum usuário cadastrado.
+</div>
+{% endfor %}

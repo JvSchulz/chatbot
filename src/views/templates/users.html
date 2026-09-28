@@ -1,0 +1,46 @@
+{% extends "index.html" %}
+
+{% block title %}Usuários - Painel de Administração{% endblock %}
+{% block nav_menus %}{% endblock %}
+{% block nav_users %}active{% endblock %}
+
+{% block content %}
+<section class="page-header" style="margin-bottom: 1rem;">
+    <h2 class="page-title">Gerenciador de Usuários</h2>
+    <p class="page-subtitle">Selecione um usuário na coluna esquerda para editar ou cadastre um novo acesso.</p>
+</section>
+
+<section class="split-layout">
+    <!-- Container da Esquerda: Lista de Usuários com Rolagem -->
+    <div class="split-sidebar">
+        <div class="split-sidebar-header">
+            <h3>Usuários Cadastrados</h3>
+            <button type="button"
+                    hx-get="/usuarios/novo/card"
+                    hx-target="#user-detail-pane"
+                    hx-swap="innerHTML"
+                    class="btn btn-primary"
+                    style="font-size: 0.8rem; padding: 0.35rem 0.75rem;">
+                + Novo Usuário
+            </button>
+        </div>
+        <div id="user-list-container"
+             class="split-list"
+             hx-get="/usuarios/lista"
+             hx-trigger="userListChanged from:body">
+            {% include "partials/_user_list_items.html" %}
+        </div>
+    </div>
+
+    <!-- Container da Direita: Card de Detalhe / Edição Inline -->
+    <div id="user-detail-pane" class="split-detail">
+        {% if selected_user %}
+            {% set user = selected_user %}
+            {% include "partials/_user_card.html" %}
+        {% else %}
+            {% set user = none %}
+            {% include "partials/_user_card.html" %}
+        {% endif %}
+    </div>
+</section>
+{% endblock %}

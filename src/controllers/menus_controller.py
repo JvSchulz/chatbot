@@ -1,17 +1,324 @@
-from fastapi import APIRouter, Request
+from typing import Annotated
+from fastapi import APIRouter, Request, Form, HTTPException, status, Depends
 from fastapi.responses import HTMLResponse
+from sqlmodel import Session
+
 from src.core import config
+from src.core.db import SessionDep
+from src.models.user_model import User
+from src.services.user_service import get_current_user
+from src.services.menu_service import (
+    get_all_menus,
+    get_root_menu,
+    get_menu_by_id,
+    get_valid_parent_menus,
+    build_menu_split_view_context,
+    create_menu,
+    update_menu,
+    delete_menu,
+    MenuData,
+)
 
 router = APIRouter(prefix="/menus", tags=["menu"])
-
 templates = config.templates
 
 
 @router.get("", response_class=HTMLResponse)
-def menu_list(request: Request):
-    return templates.TemplateResponse(request=request, name="menu_list.html")
+def menu_split_view(
+    request: Request,
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    """
+    Renderiza a visualização master-detail principal de gerenciamento de menus.
+
+    Args:
+        request: Objeto da requisição HTTP.
+        session: Sessão ativa do banco de dados.
+        current_user: Usuário atualmente autenticado.
+
+    Returns:
+        Template HTML com lista à esquerda e menu raiz carregado à direita.
+    """
+    context = build_menu_split_view_context(session)
+    context["current_user"] = current_user
+
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context=context,
+    )
 
 
-@router.get("/novo", response_class=HTMLResponse)
-def menu_form(request: Request):
-    return templates.TemplateResponse(request=request, name="menu_form.html")
+@router.get("/lista", response_class=HTMLResponse)
+def menu_list_partial(request: Request, session: SessionDep, selected_id: int | None = None):
+    """
+    Retorna apenas a lista de menus para recarregamento reativo via HTMX.
+
+    Args:
+        request: Objeto da requisição HTTP.
+        session: Sessão ativa do banco de dados.
+        selected_id: Identificador opcional do menu atualmente ativo.
+
+    Returns:
+        Fragmento HTML com os itens de menu.
+    """
+    all_menus = get_all_menus(session)
+    selected_menu = get_menu_by_id(selected_id, session) if selected_id else None
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/_menu_list_items.html",
+        context={
+            "menus": all_menus,
+            "selected_menu": selected_menu,
+        },
+    )
+
+
+@router.get("/novo/card", response_class=HTMLResponse)
+def menu_new_card(request: Request, session: SessionDep):
+    """
+    Retorna o formulário em branco para criação de novo menu.
+
+    Args:
+        request: Objeto da requisição HTTP.
+        session: Sessão ativa do banco de dados.
+
+    Returns:
+        Fragmento HTML do card de criação com nome pré-definido.
+    """
+    root_menu = get_root_menu(session)
+    has_root = root_menu is not None
+    is_current_root = not has_root
+    can_toggle_root = not has_root
+    valid_parents = get_all_menus(session)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/_menu_card.html",
+        context={
+            "menu": None,
+            "root_menu": root_menu,
+            "has_root": has_root,
+            "is_current_root": is_current_root,
+            "can_toggle_root": can_toggle_root,
+            "valid_parents": valid_parents,
+        },
+    )
+
+
+@router.get("/{menu_id}/card", response_class=HTMLResponse)
+def menu_detail_card(request: Request, menu_id: int, session: SessionDep):
+    """
+    Retorna o card de visualização e edição de um menu específico.
+
+    Args:
+        request: Objeto da requisição HTTP.
+        menu_id: Identificador do menu selecionado.
+        session: Sessão ativa do banco de dados.
+
+    Returns:
+        Fragmento HTML com os dados do menu preenchidos.
+    """
+    menu = get_menu_by_id(menu_id, session)
+    if not menu:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Menu não encontrado.")
+
+    root_menu = get_root_menu(session)
+    has_root = root_menu is not None
+    is_current_root = menu.parent_id is None
+    can_toggle_root = (not has_root) or is_current_root
+    valid_parents = get_valid_parent_menus(session, exclude_id=menu.id)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/_menu_card.html",
+        context={
+            "menu": menu,
+            "root_menu": root_menu,
+            "has_root": has_root,
+            "is_current_root": is_current_root,
+            "can_toggle_root": can_toggle_root,
+            "valid_parents": valid_parents,
+        },
+    )
+
+
+def parse_menu_form(
+    name: Annotated[str, Form()],
+    selection_name: Annotated[str, Form()],
+    message: Annotated[str, Form()],
+    parent_id: Annotated[str | None, Form()] = None,
+    is_root: Annotated[bool, Form()] = False,
+) -> MenuData:
+    """Extrai e valida dados de formulário HTML para criação ou edição de nós de menu."""
+    parsed_parent_id = None if is_root else (int(parent_id) if parent_id and parent_id.isdigit() else None)
+    return MenuData(
+        name=name,
+        selection_name=selection_name,
+        message=message,
+        parent_id=parsed_parent_id,
+        is_root=is_root,
+    )
+
+
+def get_menu_update_payload(
+    session: SessionDep,
+    menu_data: Annotated[MenuData, Depends(parse_menu_form)],
+) -> tuple[Session, MenuData]:
+    """Empacota a sessão do banco de dados e os dados do formulário de menu para atualização."""
+    return session, menu_data
+
+
+@router.post("", response_class=HTMLResponse)
+def menu_create_submit(
+    request: Request,
+    session: SessionDep,
+    menu_data: Annotated[MenuData, Depends(parse_menu_form)],
+):
+    """
+    Processa a criação de um novo menu com validação de raiz única.
+
+    Args:
+        request: Objeto da requisição HTTP.
+        session: Sessão ativa do banco de dados.
+        menu_data: Dados estruturados do novo menu.
+
+    Returns:
+        Card do menu recém-criado ou erro 422 em caso de violação de regras.
+    """
+    try:
+        new_menu = create_menu(session, data=menu_data)
+        root_menu = get_root_menu(session)
+        valid_parents = get_valid_parent_menus(session, exclude_id=new_menu.id)
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/_menu_card.html",
+            context={
+                "menu": new_menu,
+                "root_menu": root_menu,
+                "has_root": root_menu is not None,
+                "is_current_root": new_menu.parent_id is None,
+                "can_toggle_root": True,
+                "valid_parents": valid_parents,
+            },
+            headers={"HX-Trigger": "menuListChanged"},
+        )
+    except ValueError as exc:
+        root_menu = get_root_menu(session)
+        valid_parents = get_all_menus(session)
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/_menu_card.html",
+            context={
+                "menu": None,
+                "root_menu": root_menu,
+                "has_root": root_menu is not None,
+                "is_current_root": menu_data.is_root,
+                "can_toggle_root": (root_menu is None) or menu_data.is_root,
+                "valid_parents": valid_parents,
+                "error": str(exc),
+            },
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
+
+
+@router.post("/{menu_id}", response_class=HTMLResponse)
+def menu_update_submit(
+    request: Request,
+    menu_id: int,
+    payload: Annotated[tuple[Session, MenuData], Depends(get_menu_update_payload)],
+):
+    """
+    Atualiza um menu existente com validação contra ciclos e raiz única.
+
+    Args:
+        request: Objeto da requisição HTTP.
+        menu_id: Identificador do menu a ser atualizado.
+        payload: Tupla contendo sessão e dados estruturados do formulário.
+
+    Returns:
+        Card atualizado ou alerta de erro 422 em caso de ciclo ou violação de raiz.
+    """
+    session, menu_data = payload
+
+
+    try:
+        updated_menu = update_menu(session, menu_id=menu_id, data=menu_data)
+        root_menu = get_root_menu(session)
+        valid_parents = get_valid_parent_menus(session, exclude_id=updated_menu.id)
+        is_curr_root = updated_menu.parent_id is None
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/_menu_card.html",
+            context={
+                "menu": updated_menu,
+                "root_menu": root_menu,
+                "has_root": root_menu is not None,
+                "is_current_root": is_curr_root,
+                "can_toggle_root": (root_menu is None) or is_curr_root,
+                "valid_parents": valid_parents,
+            },
+            headers={"HX-Trigger": "menuListChanged"},
+        )
+    except ValueError as exc:
+        menu = get_menu_by_id(menu_id, session)
+        root_menu = get_root_menu(session)
+        valid_parents = get_valid_parent_menus(session, exclude_id=menu_id)
+        is_curr_root = menu.parent_id is None if menu else False
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/_menu_card.html",
+            context={
+                "menu": menu,
+                "root_menu": root_menu,
+                "has_root": root_menu is not None,
+                "is_current_root": is_curr_root,
+                "can_toggle_root": (root_menu is None) or is_curr_root,
+                "valid_parents": valid_parents,
+                "error": str(exc),
+            },
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
+
+
+@router.delete("/{menu_id}", response_class=HTMLResponse)
+def menu_delete_submit(
+    request: Request,
+    menu_id: int,
+    session: SessionDep,
+):
+    """
+    Remove um menu do sistema ou bloqueia caso possua submenus dependentes.
+
+    Args:
+        request: Objeto da requisição HTTP.
+        menu_id: Identificador do menu a ser excluído.
+        session: Sessão ativa do banco de dados.
+
+    Returns:
+        Card em branco se removido com sucesso ou alerta 400 se bloqueado por submenus.
+    """
+    try:
+        delete_menu(session, menu_id)
+        return menu_new_card(request, session)
+    except ValueError as exc:
+        menu = get_menu_by_id(menu_id, session)
+        root_menu = get_root_menu(session)
+        valid_parents = get_valid_parent_menus(session, exclude_id=menu_id)
+        is_curr_root = menu.parent_id is None if menu else False
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/_menu_card.html",
+            context={
+                "menu": menu,
+                "root_menu": root_menu,
+                "has_root": root_menu is not None,
+                "is_current_root": is_curr_root,
+                "can_toggle_root": (root_menu is None) or is_curr_root,
+                "valid_parents": valid_parents,
+                "error": str(exc),
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
