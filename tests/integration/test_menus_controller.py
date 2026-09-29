@@ -207,3 +207,82 @@ def test_delete_menu_not_found_returns_400(session: Session):
     client = make_client(session)
     response = client.delete("/menus/99999", headers={"HX-Request": "true"})
     assert response.status_code == 400
+
+
+def test_delete_menu_success_triggers_menu_list_changed(session: Session):
+    """
+    DELETE /menus/{id} em menu folha deve retornar 200 com HX-Trigger: menuListChanged.
+    """
+    root = Menu(name="Root", selection_name="R", message="R", parent_id=None)
+    session.add(root)
+    session.commit()
+    session.refresh(root)
+
+    leaf = Menu(name="Leaf", selection_name="L", message="L", parent_id=root.id)
+    session.add(leaf)
+    session.commit()
+    session.refresh(leaf)
+
+    leaf_id = leaf.id
+    client = make_client(session)
+    response = client.delete(f"/menus/{leaf_id}", headers={"HX-Request": "true"})
+
+    assert response.status_code == 200
+    assert response.headers.get("HX-Trigger") == "menuListChanged"
+    session.expire_all()
+    assert session.get(Menu, leaf_id) is None
+
+
+def test_update_menu_promote_child_to_root_transfers_hierarchy(session: Session):
+    """
+    POST /menus/{id} com is_root=true em um submenu deve promovê-lo a raiz e vincular a raiz antiga como filha.
+    """
+    old_root = Menu(name="OldRoot", selection_name="OR", message="OR", parent_id=None)
+    session.add(old_root)
+    session.commit()
+    session.refresh(old_root)
+
+    child = Menu(name="Child", selection_name="C", message="C", parent_id=old_root.id)
+    session.add(child)
+    session.commit()
+    session.refresh(child)
+
+    client = make_client(session)
+    payload = {
+        "name": "Child",
+        "selection_name": "C",
+        "message": "Nova Raiz",
+        "is_root": "true",
+    }
+    response = client.post(f"/menus/{child.id}", data=payload, headers={"HX-Request": "true"})
+
+    assert response.status_code == 200
+    assert response.headers.get("HX-Trigger") == "menuListChanged"
+    session.refresh(child)
+    session.refresh(old_root)
+    assert child.parent_id is None
+    assert old_root.parent_id == child.id
+
+
+def test_update_menu_uncheck_root_without_parent(session: Session):
+    """
+    POST /menus/{id} desmarcando is_root na raiz e deixando parent_id vazio salva o menu sem pai.
+    """
+    root = Menu(name="Principal", selection_name="P", message="P", parent_id=None)
+    session.add(root)
+    session.commit()
+    session.refresh(root)
+
+    client = make_client(session)
+    payload = {
+        "name": "Principal",
+        "selection_name": "P",
+        "message": "P",
+        "parent_id": "",
+        "is_root": "false",
+    }
+    response = client.post(f"/menus/{root.id}", data=payload, headers={"HX-Request": "true"})
+
+    assert response.status_code == 200
+    session.refresh(root)
+    assert root.parent_id is None

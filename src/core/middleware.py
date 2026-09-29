@@ -6,7 +6,7 @@ from typing import Callable, Awaitable
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response, JSONResponse
-from src.core.security import SESSION_COOKIE_NAME, verify_csrf_token
+from src.core.security import SESSION_COOKIE_NAME, verify_csrf_token, get_session_token_from_request
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -73,7 +73,7 @@ class CSRFProtectionMiddleware(BaseHTTPMiddleware):
         if self._is_path_exempt(request.url.path):
             return await call_next(request)
 
-        session_id = request.cookies.get(SESSION_COOKIE_NAME)
+        session_id = get_session_token_from_request(request)
         if not session_id:
             return JSONResponse(
                 status_code=403,

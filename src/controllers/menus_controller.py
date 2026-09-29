@@ -7,6 +7,7 @@ from src.core import config
 from src.core.db import SessionDep
 from src.core.security import SESSION_COOKIE_NAME, generate_csrf_token
 from src.models.user_model import User
+from src.models.menu_model import Menu
 from src.controllers.auth_controller import get_current_admin
 from src.services.menu_service import (
     get_all_menus,
@@ -98,7 +99,7 @@ def menu_new_card(request: Request, session: SessionDep):
     root_menu = get_root_menu(session)
     has_root = root_menu is not None
     is_current_root = not has_root
-    can_toggle_root = not has_root
+    can_toggle_root = True
     valid_parents = get_all_menus(session)
 
     return templates.TemplateResponse(
@@ -135,7 +136,7 @@ def menu_detail_card(request: Request, menu_id: int, session: SessionDep):
     root_menu = get_root_menu(session)
     has_root = root_menu is not None
     is_current_root = menu.parent_id is None
-    can_toggle_root = (not has_root) or is_current_root
+    can_toggle_root = True
     valid_parents = get_valid_parent_menus(session, exclude_id=menu.id)
 
     return templates.TemplateResponse(
@@ -252,6 +253,12 @@ def menu_update_submit(
 
 
     try:
+        existing_root = get_root_menu(session)
+        if menu_data.is_root and existing_root and existing_root.id != menu_id:
+            existing_root.parent_id = menu_id
+            session.add(existing_root)
+            session.commit()
+
         updated_menu = update_menu(session, menu_id=menu_id, data=menu_data)
         root_menu = get_root_menu(session)
         valid_parents = get_valid_parent_menus(session, exclude_id=updated_menu.id)
@@ -264,7 +271,7 @@ def menu_update_submit(
                 "root_menu": root_menu,
                 "has_root": root_menu is not None,
                 "is_current_root": is_curr_root,
-                "can_toggle_root": (root_menu is None) or is_curr_root,
+                "can_toggle_root": True,
                 "valid_parents": valid_parents,
             },
             headers={"HX-Trigger": "menuListChanged"},
@@ -282,7 +289,7 @@ def menu_update_submit(
                 "root_menu": root_menu,
                 "has_root": root_menu is not None,
                 "is_current_root": is_curr_root,
-                "can_toggle_root": (root_menu is None) or is_curr_root,
+                "can_toggle_root": True,
                 "valid_parents": valid_parents,
                 "error": str(exc),
             },
@@ -309,7 +316,9 @@ def menu_delete_submit(
     """
     try:
         delete_menu(session, menu_id)
-        return menu_new_card(request, session)
+        card_response = menu_new_card(request, session)
+        card_response.headers["HX-Trigger"] = "menuListChanged"
+        return card_response
     except ValueError as exc:
         menu = get_menu_by_id(menu_id, session)
         root_menu = get_root_menu(session)

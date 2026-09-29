@@ -14,11 +14,13 @@ from src.core import config
 from src.core.db import SessionDep
 from src.core.security import (
     SESSION_COOKIE_NAME,
+    LEGACY_SESSION_COOKIE_NAME,
     DUMMY_HASH,
     hash_password,
     verify_password,
     generate_session_token,
     generate_csrf_token,
+    get_session_token_from_request,
 )
 from src.models.user_model import User
 from src.models.session_model import AdminSession
@@ -45,7 +47,7 @@ def get_current_admin(
     Raises:
         HTTPException: Status 401 caso a sessão seja ausente, inválida ou expirada.
     """
-    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    session_id = get_session_token_from_request(request)
     if not session_id:
         user_id_str = request.headers.get("X-User-Id")
         if user_id_str and user_id_str.isdigit():
@@ -174,7 +176,7 @@ def logout_submit(
     Returns:
         Redirecionamento para a tela de login com cookie limpo.
     """
-    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    session_id = get_session_token_from_request(request)
     if session_id:
         existing_session = session.get(AdminSession, session_id)
         if existing_session:
@@ -188,6 +190,7 @@ def logout_submit(
         response = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
 
     response.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
+    response.delete_cookie(key=LEGACY_SESSION_COOKIE_NAME, path="/")
     return response
 
 
@@ -230,11 +233,12 @@ def _build_auth_success_response(request: Request, session_token: str) -> Respon
     else:
         response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
 
+    is_https = request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https"
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=session_token,
         httponly=True,
-        secure=True,
+        secure=is_https,
         samesite="lax",
         path="/",
     )

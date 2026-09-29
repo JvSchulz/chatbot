@@ -114,7 +114,10 @@ def get_valid_parent_menus(
         return all_menus
 
     excluded_ids = _collect_descendant_ids(all_menus, exclude_id)
-    return [m for m in all_menus if m.id not in excluded_ids]
+    valid = [m for m in all_menus if m.id not in excluded_ids]
+    if not valid:
+        return [m for m in all_menus if m.id != exclude_id]
+    return valid
 
 
 def build_menu_split_view_context(
