@@ -1,8 +1,9 @@
 from pathlib import Path
 from typing import Annotated
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, Depends
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request, Depends, HTTPException, status, Response
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 from slowapi.errors import RateLimitExceeded
@@ -42,6 +43,21 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # pyright: ignore[reportArgumentType]
+
+
+@app.exception_handler(HTTPException)
+async def unauthenticated_exception_handler(request: Request, exc: HTTPException):
+    """
+    Trata erros de autenticação (HTTP 401) redirecionando navegadores e requisições HTMX para /login.
+    """
+    if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+        if request.headers.get("HX-Request") == "true":
+            return Response(status_code=status.HTTP_200_OK, headers={"HX-Redirect": "/login"})
+        accept = request.headers.get("Accept", "")
+        if "text/html" in accept or "application/json" not in accept:
+            return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    return await http_exception_handler(request, exc)
+
 
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(CSRFProtectionMiddleware)

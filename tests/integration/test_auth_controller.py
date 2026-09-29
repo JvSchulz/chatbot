@@ -348,3 +348,39 @@ def test_post_logout_standard_request(session: Session):
     response = client.post("/logout", headers={"X-CSRF-Token": csrf})
     assert response.status_code == 303
     assert response.headers.get("Location") == "/login"
+
+
+def test_unauthenticated_browser_get_redirects_to_login():
+    """
+    Navegação via browser sem sessão ativa para rotas protegidas deve redirecionar para /login (303).
+    """
+    from main import app
+    client = TestClient(app, follow_redirects=False)
+
+    response = client.get("/")
+    assert response.status_code == 303
+    assert response.headers.get("Location") == "/login"
+
+
+def test_unauthenticated_htmx_request_returns_hx_redirect():
+    """
+    Requisição HTMX sem sessão ativa para rotas protegidas deve retornar 200 com HX-Redirect: /login.
+    """
+    from main import app
+    client = TestClient(app)
+
+    response = client.get("/menus/novo/card", headers={"HX-Request": "true"})
+    assert response.status_code == 200
+    assert response.headers.get("HX-Redirect") == "/login"
+
+
+def test_unauthenticated_api_request_with_accept_json_returns_401():
+    """
+    Requisição programática com Accept: application/json sem sessão deve reter status 401 JSON.
+    """
+    from main import app
+    client = TestClient(app)
+
+    response = client.get("/menus", headers={"Accept": "application/json"})
+    assert response.status_code == 401
+    assert response.headers.get("content-type", "").startswith("application/json")
