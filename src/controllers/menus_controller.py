@@ -5,7 +5,7 @@ from sqlmodel import Session
 
 from src.core import config
 from src.core.db import SessionDep
-from src.core.security import SESSION_COOKIE_NAME, generate_csrf_token
+from src.core.security import generate_csrf_token, get_session_token_from_request
 from src.models.user_model import User
 from src.models.menu_model import Menu
 from src.controllers.auth_controller import get_current_admin
@@ -48,7 +48,7 @@ def menu_split_view(
     """
     context = build_menu_split_view_context(session)
     context["current_user"] = current_user
-    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    session_id = get_session_token_from_request(request)
     context["csrf_token"] = generate_csrf_token(session_id) if session_id else ""
 
     return templates.TemplateResponse(

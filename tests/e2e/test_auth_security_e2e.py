@@ -134,3 +134,64 @@ def test_auth_rate_limiting_on_login():
         responses.append(resp.status_code)
 
     assert 429 in responses
+
+
+def test_users_page_lifecycle_and_csrf_e2e(session: Session):
+    """
+    Fluxo E2E de gerenciamento de usuários:
+    1. Login de administrador e navegação completa para /usuarios.
+    2. Validação da presença do token CSRF no meta-tag e hx-headers do body.
+    3. Exclusão bem-sucedida de usuário secundário via DELETE com token CSRF.
+    4. Bloqueio com status 400 de tentativa de autoexclusão da conta conectada.
+    5. Logout via POST /logout com redirecionamento para /login.
+    """
+    admin = User(login="admin_gestor", password=hash_password("Gestor2026!"), is_admin=True)
+    target_user = User(login="usuario_alvo", password=hash_password("Alvo2026!"), is_admin=False)
+    session.add(admin)
+    session.add(target_user)
+    session.commit()
+    session.refresh(admin)
+    session.refresh(target_user)
+
+    client = TestClient(app, base_url="https://testserver")
+
+    # 1. Login
+    res_login = client.post(
+        "/login",
+        data={"username": "admin_gestor", "password": "Gestor2026!"},
+        headers={"HX-Request": "true"},
+    )
+    assert res_login.status_code == 200
+
+    # 2. Navega para /usuarios
+    res_users = client.get("/usuarios")
+    assert res_users.status_code == 200
+    assert 'name="csrf-token"' in res_users.text
+    assert "usuario_alvo" in res_users.text
+
+    session_token = client.cookies.get(SESSION_COOKIE_NAME)
+    assert session_token is not None
+    csrf_token = generate_csrf_token(session_token)
+
+    target_id = target_user.id
+    # 3. Exclui o usuário alvo com CSRF
+    res_delete = client.delete(
+        f"/usuarios/{target_id}",
+        headers={"X-CSRF-Token": csrf_token, "HX-Request": "true"},
+    )
+    assert res_delete.status_code == 200
+    session.expire_all()
+    assert session.get(User, target_id) is None
+
+    # 4. Bloqueio de autoexclusão
+    res_self_del = client.delete(
+        f"/usuarios/{admin.id}",
+        headers={"X-CSRF-Token": csrf_token, "HX-Request": "true"},
+    )
+    assert res_self_del.status_code == 400
+    assert "Você não pode excluir sua própria conta em uso" in res_self_del.text
+
+    # 5. Logout sem headers CSRF manuais tem sucesso
+    res_logout = client.post("/logout", headers={"HX-Request": "true"})
+    assert res_logout.status_code == 200
+    assert res_logout.headers.get("HX-Redirect") == "/login"

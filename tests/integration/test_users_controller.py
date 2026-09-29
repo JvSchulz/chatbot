@@ -43,7 +43,7 @@ def make_admin_client(session: Session) -> TestClient:
 
 def test_get_users_renders_split_view_page(session: Session):
     """
-    GET /usuarios deve retornar status 200 e carregar a listagem e card de usuários.
+    GET /usuarios deve retornar status 200, carregar a listagem e card de usuários, e injetar o token CSRF.
     """
     u1 = User(login="superadmin", password="hash_password", is_admin=True)
     session.add(u1)
@@ -55,6 +55,8 @@ def test_get_users_renders_split_view_page(session: Session):
     assert response.status_code == 200
     assert "superadmin" in response.text
     assert 'id="user-detail-pane"' in response.text
+    assert 'name="csrf-token"' in response.text
+    assert 'X-CSRF-Token' in response.text
 
 
 def test_get_user_list_partial(session: Session):
@@ -170,6 +172,18 @@ def test_delete_user_success_and_error(session: Session):
     # Erro (ID inexistente)
     res_err = client.delete("/usuarios/99999")
     assert res_err.status_code == 400
+
+
+def test_delete_user_self_deletion_blocked(session: Session):
+    """
+    DELETE /usuarios/{id} deve bloquear a autoexclusão da conta atualmente conectada com status 400.
+    """
+    admin = seed_default_admin(session)
+    client = make_user_client(session, admin)
+
+    response = client.delete(f"/usuarios/{admin.id}")
+    assert response.status_code == 400
+    assert "Você não pode excluir sua própria conta em uso" in response.text
 
 
 def test_users_route_forbidden_for_non_admin(session: Session):

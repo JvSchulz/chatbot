@@ -5,6 +5,7 @@ from sqlmodel import Session
 
 from src.core import config
 from src.core.db import SessionDep
+from src.core.security import generate_csrf_token, get_session_token_from_request
 from src.models.user_model import User
 from src.services.user_service import (
     get_all_users,
@@ -43,6 +44,8 @@ def user_split_view(
     """
     all_users = get_all_users(session)
     selected_user = all_users[0] if all_users else None
+    session_id = get_session_token_from_request(request)
+    csrf_token = generate_csrf_token(session_id) if session_id else ""
 
     return templates.TemplateResponse(
         request=request,
@@ -51,6 +54,7 @@ def user_split_view(
             "users": all_users,
             "selected_user": selected_user,
             "current_user": current_user,
+            "csrf_token": csrf_token,
         },
     )
 
@@ -216,6 +220,7 @@ def user_delete_submit(
     request: Request,
     user_id: int,
     session: SessionDep,
+    current_user: Annotated[User, Depends(require_admin_user)],
 ):
     """
     Exclui um usuário do sistema.
@@ -224,12 +229,13 @@ def user_delete_submit(
         request: Objeto da requisição HTTP.
         user_id: Identificador do usuário a ser removido.
         session: Sessão ativa do banco de dados.
+        current_user: Usuário administrador autenticado executando a exclusão.
 
     Returns:
         Card em branco se removido com sucesso ou alerta 400 se autoexclusão for bloqueada.
     """
     try:
-        delete_user(session, target_user_id=user_id)
+        delete_user(session, target_user_id=user_id, current_user_id=current_user.id)
         return templates.TemplateResponse(
             request=request,
             name="partials/_user_card.html",

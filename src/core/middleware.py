@@ -50,7 +50,7 @@ class CSRFProtectionMiddleware(BaseHTTPMiddleware):
     """
 
     SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
-    EXEMPT_PATHS = ("/webhook", "/login")
+    EXEMPT_PATHS = ("/webhook", "/login", "/logout")
 
     async def dispatch(
         self,
@@ -99,4 +99,4 @@ class CSRFProtectionMiddleware(BaseHTTPMiddleware):
         Returns:
             True se a rota for isenta, False caso contrário.
         """
-        return path.startswith("/webhook") or path == "/login"
+        return path.startswith("/webhook") or path in ("/login", "/logout")

@@ -11,7 +11,7 @@ from slowapi import _rate_limit_exceeded_handler
 
 from src.core import config
 from src.core.db import create_db_and_tables, engine, SessionDep
-from src.core.security import SESSION_COOKIE_NAME, generate_csrf_token
+from src.core.security import SESSION_COOKIE_NAME, generate_csrf_token, get_session_token_from_request
 from src.core.middleware import SecurityHeadersMiddleware, CSRFProtectionMiddleware
 from src.models import menu_model, user_model, chat_history_model, user_session_model, session_model
 from src.models.user_model import User
@@ -105,7 +105,7 @@ def index(
     """
     context = build_menu_split_view_context(session)
     context["current_user"] = current_user
-    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    session_id = get_session_token_from_request(request)
     context["csrf_token"] = generate_csrf_token(session_id) if session_id else ""
     return templates.TemplateResponse(request=request, name="index.html", context=context)
 
@@ -115,7 +115,7 @@ def chat_history(
     request: Request,
     current_user: Annotated[User, Depends(get_current_admin)],
 ):
-    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    session_id = get_session_token_from_request(request)
     csrf_token = generate_csrf_token(session_id) if session_id else ""
     return templates.TemplateResponse(
         request=request,

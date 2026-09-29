@@ -34,6 +34,10 @@ def create_test_app() -> FastAPI:
     def login_endpoint(request: Request):
         return {"status": "logged_in", "path": request.url.path}
 
+    @app.post("/logout")
+    def logout_endpoint(request: Request):
+        return {"status": "logged_out", "path": request.url.path}
+
     @app.post("/webhook")
     def webhook_endpoint(request: Request):
         return {"status": "webhook_received", "path": request.url.path}
@@ -117,6 +121,18 @@ def test_csrf_middleware_exempts_login():
     response = client.post("/login", data={"username": "a", "password": "b"})
     assert response.status_code == 200
     assert response.json() == {"status": "logged_in", "path": "/login"}
+
+
+def test_csrf_middleware_exempts_logout():
+    """
+    Garante que requisições POST para /logout passem sem exigir validação CSRF.
+    """
+    app = create_test_app()
+    client = TestClient(app)
+
+    response = client.post("/logout")
+    assert response.status_code == 200
+    assert response.json() == {"status": "logged_out", "path": "/logout"}
 
 
 def test_csrf_middleware_blocks_admin_post_without_cookie_or_token():

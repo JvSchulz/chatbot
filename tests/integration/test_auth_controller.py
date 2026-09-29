@@ -350,6 +350,35 @@ def test_post_logout_standard_request(session: Session):
     assert response.headers.get("Location") == "/login"
 
 
+def test_post_logout_without_csrf_header_succeeds(session: Session):
+    """
+    POST /logout sem cabeçalho X-CSRF-Token deve ser aceito e realizar logout com sucesso (303).
+    """
+    user = User(login="logout_nocsrf", password=hash_password("123"), is_admin=True)
+    session.add(user)
+    session.commit()
+
+    token = generate_session_token()
+    admin_session = AdminSession(
+        id=token,
+        user_id=user.id,  # type: ignore
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+    session.add(admin_session)
+    session.commit()
+
+    app = create_auth_test_app()
+    client = TestClient(app, follow_redirects=False)
+    client.cookies.set(SESSION_COOKIE_NAME, token)
+
+    response = client.post("/logout")
+    assert response.status_code == 303
+    assert response.headers.get("Location") == "/login"
+
+    session.expire_all()
+    assert session.get(AdminSession, token) is None
+
+
 def test_unauthenticated_browser_get_redirects_to_login():
     """
     Navegação via browser sem sessão ativa para rotas protegidas deve redirecionar para /login (303).

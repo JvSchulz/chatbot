@@ -7,10 +7,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Painel de Administração{% endblock %}</title>
     <meta name="htmx-config" content='{"allowScriptTags": false, "allowEval": false, "selfRequestsOnly": true}'>
+    {% if csrf_token %}
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    {% endif %}
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/htmx.min.js"></script>
     <script>
         document.addEventListener("DOMContentLoaded", function () {
+            document.body.addEventListener("htmx:configRequest", function (evt) {
+                if (!evt.detail.headers["X-CSRF-Token"]) {
+                    const metaCsrf = document.querySelector('meta[name="csrf-token"]');
+                    if (metaCsrf && metaCsrf.content) {
+                        evt.detail.headers["X-CSRF-Token"] = metaCsrf.content;
+                    }
+                }
+            });
             document.body.addEventListener("htmx:beforeSwap", function (evt) {
                 if (evt.detail.xhr.status === 400 || evt.detail.xhr.status === 422) {
                     evt.detail.shouldSwap = true;
