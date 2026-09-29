@@ -8,7 +8,7 @@ from src.models.menu_model import Menu
 from main import app
 
 
-def test_e2e_menu_crud_lifecycle(session: Session):
+def test_e2e_menu_crud_lifecycle(session: Session, auth_client: TestClient):
     """
     Fluxo E2E:
     1. Acessa '/' e é redirecionado para '/menus'.
@@ -20,7 +20,7 @@ def test_e2e_menu_crud_lifecycle(session: Session):
     7. Exclui o submenu com sucesso.
     8. Exclui o menu pai com sucesso.
     """
-    client = TestClient(app, follow_redirects=True)
+    client = auth_client
 
     # 1. Acesso à raiz redireciona para /menus
     res_root = client.get("/")

@@ -44,39 +44,29 @@ def get_current_user(
     session: SessionDep,
 ) -> User:
     """
-    Identifica o usuário atual a partir da requisição HTTP.
-
-    Verifica headers, cookies ou parâmetros de consulta. Caso não haja usuário
-    especificado, utiliza o usuário administrador padrão do sistema.
+    Identifica o usuário atual a partir da sessão ativa no cookie ou cabeçalho.
 
     Args:
         request: Objeto da requisição HTTP.
         session: Sessão ativa do banco de dados.
 
     Returns:
-        Instância de User identificada ou administrador padrão.
+        Instância de User autenticada.
     """
-    user_id_str = (
-        request.headers.get("X-User-Id")
-        or request.cookies.get("user_id")
-        or request.query_params.get("user_id")
-    )
-    if user_id_str and user_id_str.isdigit():
-        user = session.get(User, int(user_id_str))
-        if user:
-            return user
-
-    return seed_default_admin(session)
+    from src.controllers.auth_controller import get_current_admin
+    return get_current_admin(request, session)
 
 
 def require_admin_user(
-    current_user: Annotated[User, Depends(get_current_user)],
+    request: Request,
+    session: SessionDep,
 ) -> User:
     """
     Garante que o usuário requisitante possua privilégios de administrador.
 
     Args:
-        current_user: Usuário autenticado resolvido pela injeção de dependência.
+        request: Objeto da requisição HTTP.
+        session: Sessão ativa do banco de dados.
 
     Returns:
         Instância do usuário administrador confirmado.
@@ -84,6 +74,8 @@ def require_admin_user(
     Raises:
         HTTPException: Status 403 caso o usuário não possua privilégios de admin.
     """
+    from src.controllers.auth_controller import get_current_admin
+    current_user = get_current_admin(request, session)
     if not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

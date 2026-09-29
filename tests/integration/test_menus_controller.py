@@ -2,10 +2,36 @@
 Testes de integração para as rotas administrativas de MenusController.
 """
 
+from datetime import datetime, timezone, timedelta
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 from src.models.menu_model import Menu
+from src.models.session_model import AdminSession
+from src.services.user_service import seed_default_admin
+from src.core.security import SESSION_COOKIE_NAME, generate_session_token, generate_csrf_token
 from main import app
+
+
+def make_client(session: Session) -> TestClient:
+    """
+    Cria cliente de teste autenticado com sessão de administrador e CSRF token.
+    """
+    admin = seed_default_admin(session)
+    token = generate_session_token()
+    csrf = generate_csrf_token(token)
+
+    admin_session = AdminSession(
+        id=token,
+        user_id=admin.id,  # type: ignore
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=12),
+    )
+    session.add(admin_session)
+    session.commit()
+
+    c = TestClient(app)
+    c.cookies.set(SESSION_COOKIE_NAME, token)
+    c.headers.update({"X-CSRF-Token": csrf})
+    return c
 
 
 def test_get_menus_renders_split_view_page(session: Session):
@@ -16,7 +42,7 @@ def test_get_menus_renders_split_view_page(session: Session):
     session.add(m1)
     session.commit()
 
-    client = TestClient(app)
+    client = make_client(session)
     response = client.get("/menus")
 
     assert response.status_code == 200
@@ -28,7 +54,7 @@ def test_get_menus_shows_warning_when_no_root(session: Session):
     """
     GET /menus sem menu raiz deve exibir banner vermelho de alerta.
     """
-    client = TestClient(app)
+    client = make_client(session)
     response = client.get("/menus")
 
     assert response.status_code == 200
@@ -43,7 +69,7 @@ def test_get_menu_list_partial(session: Session):
     session.add(m1)
     session.commit()
 
-    client = TestClient(app)
+    client = make_client(session)
     response = client.get(f"/menus/lista?selected_id={m1.id}")
     assert response.status_code == 200
     assert "ListaMenu" in response.text
@@ -58,7 +84,7 @@ def test_get_menu_card_partial_via_htmx(session: Session):
     session.commit()
     session.refresh(m1)
 
-    client = TestClient(app)
+    client = make_client(session)
     response = client.get(f"/menus/{m1.id}/card", headers={"HX-Request": "true"})
 
     assert response.status_code == 200
@@ -71,7 +97,7 @@ def test_get_menu_card_not_found(session: Session):
     """
     GET /menus/{id}/card com ID inexistente deve retornar 404.
     """
-    client = TestClient(app)
+    client = make_client(session)
     response = client.get("/menus/99999/card")
     assert response.status_code == 404
 
@@ -80,7 +106,7 @@ def test_get_new_menu_card_provides_clean_draft(session: Session):
     """
     GET /menus/novo/card deve carregar formulário com nome default 'Novo Menu'.
     """
-    client = TestClient(app)
+    client = make_client(session)
     response = client.get("/menus/novo/card", headers={"HX-Request": "true"})
 
     assert response.status_code == 200
@@ -91,7 +117,7 @@ def test_post_create_root_menu_success(session: Session):
     """
     POST /menus com is_root=true deve criar a raiz com sucesso.
     """
-    client = TestClient(app)
+    client = make_client(session)
     payload = {
         "name": "Extensão Universitária",
         "selection_name": "Ext",
@@ -113,7 +139,7 @@ def test_post_create_second_root_rejected_with_422(session: Session):
     session.add(m1)
     session.commit()
 
-    client = TestClient(app)
+    client = make_client(session)
     payload = {
         "name": "Segunda Raiz",
         "selection_name": "R2",
@@ -140,7 +166,7 @@ def test_post_update_menu_cycle_rejection(session: Session):
     session.commit()
     session.refresh(child)
 
-    client = TestClient(app)
+    client = make_client(session)
     payload = {
         "name": "Pai",
         "selection_name": "P",
@@ -167,7 +193,7 @@ def test_delete_menu_with_submenus_blocked(session: Session):
     session.add(child)
     session.commit()
 
-    client = TestClient(app)
+    client = make_client(session)
     response = client.delete(f"/menus/{parent.id}", headers={"HX-Request": "true"})
 
     assert response.status_code == 400
@@ -178,6 +204,6 @@ def test_delete_menu_not_found_returns_400(session: Session):
     """
     DELETE /menus/{id} com ID inexistente deve capturar ValueError e retornar 400.
     """
-    client = TestClient(app)
+    client = make_client(session)
     response = client.delete("/menus/99999", headers={"HX-Request": "true"})
     assert response.status_code == 400

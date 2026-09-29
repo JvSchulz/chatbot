@@ -5,8 +5,9 @@ from sqlmodel import Session
 
 from src.core import config
 from src.core.db import SessionDep
+from src.core.security import SESSION_COOKIE_NAME, generate_csrf_token
 from src.models.user_model import User
-from src.services.user_service import get_current_user
+from src.controllers.auth_controller import get_current_admin
 from src.services.menu_service import (
     get_all_menus,
     get_root_menu,
@@ -19,7 +20,11 @@ from src.services.menu_service import (
     MenuData,
 )
 
-router = APIRouter(prefix="/menus", tags=["menu"])
+router = APIRouter(
+    prefix="/menus",
+    tags=["menu"],
+    dependencies=[Depends(get_current_admin)],
+)
 templates = config.templates
 
 
@@ -27,7 +32,7 @@ templates = config.templates
 def menu_split_view(
     request: Request,
     session: SessionDep,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_current_admin)],
 ):
     """
     Renderiza a visualização master-detail principal de gerenciamento de menus.
@@ -42,6 +47,8 @@ def menu_split_view(
     """
     context = build_menu_split_view_context(session)
     context["current_user"] = current_user
+    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    context["csrf_token"] = generate_csrf_token(session_id) if session_id else ""
 
     return templates.TemplateResponse(
         request=request,

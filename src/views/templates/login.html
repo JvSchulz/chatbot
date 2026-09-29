@@ -12,13 +12,21 @@
         <div style="text-align: center; margin-bottom: 1.5rem;">
             <div class="logo" style="margin: 0 auto 1rem; width: 44px; height: 44px; font-size: 1.2rem; background-color: var(--primary-color); border-radius: var(--radius); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">CB</div>
             <h2 style="font-size: 1.4rem; font-weight: 700;">Login Administrativo</h2>
-            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.25rem;">Acesse o painel do chatbot</p>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.25rem;">Acesse o painel de gerenciamento do chatbot</p>
         </div>
 
-        <form action="/login" method="POST">
+        <div id="login-error" style="margin-bottom: 1rem;">
+            {% if error %}
+            <div class="alert alert-danger" style="background-color: #fee2e2; border: 1px solid #ef4444; color: #b91c1c; padding: 0.75rem 1rem; border-radius: var(--radius); font-size: 0.9rem;">
+                {{ error }}
+            </div>
+            {% endif %}
+        </div>
+
+        <form action="/login" method="POST" hx-post="/login" hx-target="#login-error" hx-swap="innerHTML">
             <div class="form-group">
                 <label for="username">Usuário</label>
-                <input type="text" id="username" name="username" class="form-input" placeholder="Seu usuário" required>
+                <input type="text" id="username" name="username" class="form-input" placeholder="Seu usuário" required autofocus>
             </div>
 
             <div class="form-group">

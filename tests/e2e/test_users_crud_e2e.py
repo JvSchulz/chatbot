@@ -8,7 +8,7 @@ from src.models.user_model import User
 from main import app
 
 
-def test_e2e_user_crud_lifecycle(session: Session):
+def test_e2e_user_crud_lifecycle(session: Session, auth_client: TestClient):
     """
     Fluxo E2E:
     1. Acessa '/usuarios' e verifica renderização da página.
@@ -18,7 +18,7 @@ def test_e2e_user_crud_lifecycle(session: Session):
     5. Atualiza o usuário alterando privilégios de administrador.
     6. Exclui o usuário com sucesso.
     """
-    client = TestClient(app)
+    client = auth_client
 
     # 1. Acesso à rota de usuários
     res_list = client.get("/usuarios")

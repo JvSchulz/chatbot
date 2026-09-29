@@ -5,7 +5,7 @@ from sqlmodel import SQLModel, Session, create_engine
 from pywa.client import WhatsApp
 from pywa.types import Message, CallbackButton, CallbackSelection
 from pywa.types.base_update import User
-from src.models import menu_model, user_model, chat_history_model, user_session_model  # noqa: F401
+from src.models import menu_model, user_model, chat_history_model, user_session_model, session_model  # noqa: F401
 
 
 @pytest.fixture(name="engine")
@@ -50,6 +50,47 @@ def session_fixture(engine, monkeypatch):
 
     with Session(engine) as session:
         yield session
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    """
+    Reseta o armazenamento do slowapi antes e depois de cada teste para evitar falsos 429.
+    """
+    from src.controllers.auth_controller import limiter
+    limiter.reset()
+    yield
+    limiter.reset()
+
+
+@pytest.fixture(name="auth_client")
+def auth_client_fixture(session: Session):
+    """
+    Fornece um TestClient com sessão de administrador ativa e cabeçalhos de segurança configurados.
+    """
+    from src.core.security import SESSION_COOKIE_NAME, generate_session_token, generate_csrf_token
+    from src.models.session_model import AdminSession
+    from src.services.user_service import seed_default_admin
+    from datetime import datetime, timezone, timedelta
+    from starlette.testclient import TestClient
+    from main import app
+
+    admin = seed_default_admin(session)
+    token = generate_session_token()
+    csrf = generate_csrf_token(token)
+
+    admin_session = AdminSession(
+        id=token,
+        user_id=admin.id,  # type: ignore
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=12),
+    )
+    session.add(admin_session)
+    session.commit()
+
+    client = TestClient(app, base_url="https://testserver", follow_redirects=True)
+    client.cookies.set(SESSION_COOKIE_NAME, token)
+    client.headers.update({"X-CSRF-Token": csrf})
+    return client
 
 
 @pytest.fixture(name="mock_wa_client")

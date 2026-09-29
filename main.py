@@ -5,17 +5,23 @@ from fastapi import FastAPI, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
+
 from src.core import config
-from pywa.client import WhatsApp
+from src.core.db import create_db_and_tables, engine, SessionDep
+from src.core.security import SESSION_COOKIE_NAME, generate_csrf_token
+from src.core.middleware import SecurityHeadersMiddleware, CSRFProtectionMiddleware
+from src.models import menu_model, user_model, chat_history_model, user_session_model, session_model
+from src.models.user_model import User
+from src.services.user_service import seed_default_admin
+from src.services.menu_service import build_menu_split_view_context
+from src.controllers.auth_controller import router as auth_router, get_current_admin, limiter
 from src.controllers.menus_controller import router as menus_router
 from src.controllers.users_controller import router as users_router
 from src.controllers.webhook_controller import setup_webhook_handlers
+from pywa.client import WhatsApp
 from dotenv import load_dotenv
-from src.core.db import create_db_and_tables, engine, SessionDep
-from src.models import menu_model, user_model, chat_history_model, user_session_model
-from src.models.user_model import User
-from src.services.user_service import seed_default_admin, get_current_user
-from src.services.menu_service import build_menu_split_view_context
 import os
 import logging
 
@@ -34,6 +40,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(CSRFProtectionMiddleware)
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -50,6 +61,7 @@ app.mount(
 )
 
 templates = config.templates
+app.include_router(auth_router)
 app.include_router(menus_router)
 app.include_router(users_router)
 
@@ -69,7 +81,7 @@ setup_webhook_handlers(wa)
 def index(
     request: Request,
     session: SessionDep,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_current_admin)],
 ):
     """
     Página inicial do painel de administração.
@@ -77,17 +89,20 @@ def index(
     """
     context = build_menu_split_view_context(session)
     context["current_user"] = current_user
+    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    context["csrf_token"] = generate_csrf_token(session_id) if session_id else ""
     return templates.TemplateResponse(request=request, name="index.html", context=context)
 
 
 @app.get("/historico", response_class=HTMLResponse)
 def chat_history(
     request: Request,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_current_admin)],
 ):
+    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    csrf_token = generate_csrf_token(session_id) if session_id else ""
     return templates.TemplateResponse(
         request=request,
         name="chat_history.html",
-        context={"current_user": current_user},
+        context={"current_user": current_user, "csrf_token": csrf_token},
     )
-
