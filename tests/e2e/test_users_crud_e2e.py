@@ -3,7 +3,7 @@ Testes E2E simulando o ciclo de vida completo de gestão de usuários no painel 
 """
 
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
 from src.models.user_model import User
 from main import app
 
@@ -40,9 +40,10 @@ def test_e2e_user_crud_lifecycle(session: Session, auth_client: TestClient):
     assert res_create.status_code == 200
     assert "coordenador" in res_create.text
 
-    all_users = session.query(User).all() if hasattr(session, "query") else session.exec(User).all()
+    all_users = session.query(User).all() if hasattr(session, "query") else session.exec(select(User)).all()
     created_user = next(u for u in all_users if u.login == "coordenador")
     assert created_user.is_admin is True
+    assert created_user.password.startswith("$argon2id$")
 
     # 4. Tenta criar usuário duplicado
     res_dup = client.post("/usuarios", data=payload_create, headers={"HX-Request": "true"})

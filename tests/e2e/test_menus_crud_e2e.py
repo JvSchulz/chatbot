@@ -3,7 +3,7 @@ Testes E2E simulando navegação completa, criação e edição de menus via HTM
 """
 
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
 from src.models.menu_model import Menu
 from main import app
 
@@ -44,7 +44,7 @@ def test_e2e_menu_crud_lifecycle(session: Session, auth_client: TestClient):
     assert "Graduação" in res_create_parent.text
 
     # Recupera o ID do menu recém-criado
-    all_menus = session.query(Menu).all() if hasattr(session, "query") else session.exec(Menu).all()
+    all_menus = session.query(Menu).all() if hasattr(session, "query") else session.exec(select(Menu)).all()
     parent_menu = next(m for m in all_menus if m.name == "Graduação")
 
     # 4. Cria Submenu Filho (Matrícula) como Não-Raiz
@@ -65,7 +65,7 @@ def test_e2e_menu_crud_lifecycle(session: Session, auth_client: TestClient):
     assert "possui submenus vinculados" in res_del_parent_fail.text
 
     # 6. Exclui o submenu (filho) com sucesso
-    all_menus = session.query(Menu).all() if hasattr(session, "query") else session.exec(Menu).all()
+    all_menus = session.query(Menu).all() if hasattr(session, "query") else session.exec(select(Menu)).all()
     child_menu = next(m for m in all_menus if m.name == "Matrícula")
     res_del_child = client.delete(f"/menus/{child_menu.id}", headers={"HX-Request": "true"})
     assert res_del_child.status_code == 200

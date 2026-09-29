@@ -4,6 +4,7 @@ Testes unitários para as operações de CRUD e regras de validação de UserSer
 
 import pytest
 from sqlmodel import Session
+from src.core.security import verify_password
 from src.models.user_model import User
 from src.services.user_service import (
     get_all_users,
@@ -59,6 +60,8 @@ def test_create_user_persists_new_user(session: Session):
     assert user.id is not None
     assert user.login == "novousuario"
     assert user.is_admin is True
+    assert user.password.startswith("$argon2id$")
+    assert verify_password("SenhaValida123", user.password) is True
 
 
 def test_create_user_raises_value_error_on_duplicate_login(session: Session):
@@ -104,6 +107,8 @@ def test_update_user_updates_password_when_provided(session: Session):
         is_admin=False,
     )
     assert updated.password != "OldPassword123"
+    assert updated.password.startswith("$argon2id$")
+    assert verify_password("NewPassword123", updated.password) is True
 
 
 def test_delete_user_blocks_self_deletion(session: Session):
@@ -134,7 +139,8 @@ def test_seed_default_admin_creates_new_admin(session: Session):
     admin = seed_default_admin(session)
     assert admin.id is not None
     assert admin.login == "admin"
-    assert admin.password == "admin"
+    assert admin.password.startswith("$argon2id$")
+    assert verify_password("admin", admin.password) is True
     assert admin.is_admin is True
 
 

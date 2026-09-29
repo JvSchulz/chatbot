@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from fastapi import Request, Depends, HTTPException, status
 from sqlmodel import Session, select
 from src.core.db import engine, SessionDep
+from src.core.security import hash_password
 from src.models.user_model import User
 
 
@@ -18,7 +19,7 @@ def seed_default_admin(session: Session) -> User:
     """
     Garante que o usuário administrador padrão 'admin' exista no banco de dados.
 
-    Se não existir, cria o usuário com login 'admin', senha 'admin' e is_admin=True.
+    Se não existir, cria o usuário com login 'admin', senha 'admin' hasheada e is_admin=True.
 
     Args:
         session: Sessão ativa do banco de dados.
@@ -30,7 +31,7 @@ def seed_default_admin(session: Session) -> User:
     if not admin_user:
         admin_user = User(
             login="admin",
-            password="admin",
+            password=hash_password("admin"),
             is_admin=True,
         )
         session.add(admin_user)
@@ -143,9 +144,17 @@ def create_user(
     if existing:
         raise ValueError(f"O nome de usuário '{user_data.login}' já está em uso.")
 
+    raw_password = user_data.password or ""
+    # Evita rehashear caso a senha já seja um hash Argon2id válido
+    hashed_password = (
+        raw_password
+        if raw_password.startswith("$argon2id$")
+        else hash_password(raw_password)
+    )
+
     new_user = User(
         login=user_data.login,
-        password=user_data.password or "",
+        password=hashed_password,
         is_admin=user_data.is_admin,
     )
     session.add(new_user)
@@ -191,7 +200,11 @@ def update_user(
         user.login = user_data.login
 
     if user_data.password:
-        user.password = user_data.password
+        user.password = (
+            user_data.password
+            if user_data.password.startswith("$argon2id$")
+            else hash_password(user_data.password)
+        )
 
     user.is_admin = user_data.is_admin
 
