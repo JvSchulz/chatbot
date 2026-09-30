@@ -4,7 +4,7 @@ Teste E2E de ponta a ponta para validação do fluxo de segurança e autenticaç
 
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
-from src.core.security import SESSION_COOKIE_NAME, hash_password, generate_csrf_token
+from src.core.security import SECURE_SESSION_COOKIE_NAME, hash_password, generate_csrf_token
 from src.models.user_model import User
 from src.models.session_model import AdminSession
 from main import app
@@ -64,7 +64,7 @@ def test_auth_security_e2e_full_lifecycle(session: Session):
     )
     assert res_bad_login.status_code == 401
     assert "Usuário ou senha inválidos." in res_bad_login.text
-    assert SESSION_COOKIE_NAME not in client.cookies
+    assert SECURE_SESSION_COOKIE_NAME not in client.cookies
 
     # 3. Login com sucesso
     res_login = client.post(
@@ -74,9 +74,9 @@ def test_auth_security_e2e_full_lifecycle(session: Session):
     )
     assert res_login.status_code == 200
     assert res_login.headers.get("HX-Redirect") == "/"
-    assert SESSION_COOKIE_NAME in client.cookies
+    assert SECURE_SESSION_COOKIE_NAME in client.cookies
 
-    session_token = client.cookies.get(SESSION_COOKIE_NAME)
+    session_token = client.cookies.get(SECURE_SESSION_COOKIE_NAME)
     assert session_token is not None
 
     # Verifica persistência no banco
@@ -166,10 +166,11 @@ def test_users_page_lifecycle_and_csrf_e2e(session: Session):
     # 2. Navega para /usuarios
     res_users = client.get("/usuarios")
     assert res_users.status_code == 200
-    assert 'name="csrf-token"' in res_users.text
+    assert 'hx-headers=' in res_users.text
+    assert 'name="csrf-token"' not in res_users.text
     assert "usuario_alvo" in res_users.text
 
-    session_token = client.cookies.get(SESSION_COOKIE_NAME)
+    session_token = client.cookies.get(SECURE_SESSION_COOKIE_NAME)
     assert session_token is not None
     csrf_token = generate_csrf_token(session_token)
 

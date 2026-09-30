@@ -1,10 +1,16 @@
-from typing import Sequence, Annotated
+from typing import Sequence
 from dataclasses import dataclass
-from fastapi import Request, Depends, HTTPException, status
-from sqlmodel import Session, select
-from src.core.db import engine, SessionDep
+from fastapi import Request, HTTPException, status
+from sqlmodel import Session, col, delete, select
+from src.core.db import SessionDep
 from src.core.security import hash_password
+from src.models.session_model import AdminSession
 from src.models.user_model import User
+
+
+MIN_PASSWORD_LENGTH = 12
+ADMIN_REQUIRED_MESSAGE = "Deve existir pelo menos um administrador."
+PASSWORD_LENGTH_MESSAGE = f"A senha deve ter pelo menos {MIN_PASSWORD_LENGTH} caracteres."
 
 
 @dataclass
@@ -15,47 +21,90 @@ class UserData:
     is_admin: bool = False
 
 
-def seed_default_admin(session: Session) -> User:
+def seed_first_admin(session: Session, initial_password: str | None) -> User | None:
     """
-    Garante que o usuário administrador padrão 'admin' exista no banco de dados.
+    Cria o primeiro administrador 'admin' somente quando não existe nenhum usuário cadastrado.
 
-    Se não existir, cria o usuário com login 'admin', senha 'admin' hasheada e is_admin=True.
+    Nunca cria nem altera usuários quando a tabela já possui registros. Falha na inicialização
+    quando a tabela está vazia sem senha inicial válida, ou quando há usuários sem administrador.
 
     Args:
         session: Sessão ativa do banco de dados.
+        initial_password: Senha inicial vinda de ADMIN_INITIAL_PASSWORD, se configurada.
 
     Returns:
-        Instância do usuário administrador (existente ou recém-criado).
+        O administrador recém-criado, ou None quando nada foi criado.
+
+    Raises:
+        RuntimeError: Se o banco está vazio sem senha inicial válida, ou se existem usuários
+            e nenhum deles é administrador.
     """
-    admin_user = session.exec(select(User).where(User.login == "admin")).first()
-    if not admin_user:
-        admin_user = User(
-            login="admin",
-            password=hash_password("admin"),
-            is_admin=True,
-        )
-        session.add(admin_user)
-        session.commit()
-        session.refresh(admin_user)
-    return admin_user
+    if session.exec(select(User)).first() is None:
+        if initial_password is None or len(initial_password) < MIN_PASSWORD_LENGTH:
+            raise RuntimeError(
+                f"Banco sem usuários: defina ADMIN_INITIAL_PASSWORD com pelo menos "
+                f"{MIN_PASSWORD_LENGTH} caracteres para criar o primeiro administrador."
+            )
+        return create_user(session, UserData(login="admin", password=initial_password, is_admin=True))
+
+    if session.exec(select(User).where(col(User.is_admin).is_(True))).first() is None:
+        raise RuntimeError("Nenhum administrador existe: há usuários cadastrados, mas nenhum com is_admin.")
+    return None
 
 
-def get_current_user(
-    request: Request,
-    session: SessionDep,
-) -> User:
+def _hash_new_password(password: str | None) -> str:
     """
-    Identifica o usuário atual a partir da sessão ativa no cookie ou cabeçalho.
+    Valida o tamanho mínimo e gera o hash Argon2id de uma senha em texto puro.
+
+    Qualquer valor informado é tratado como texto puro, inclusive os que começam com '$argon2id$'.
 
     Args:
-        request: Objeto da requisição HTTP.
-        session: Sessão ativa do banco de dados.
+        password: Senha em texto puro informada pelo administrador.
 
     Returns:
-        Instância de User autenticada.
+        Hash Argon2id da senha.
+
+    Raises:
+        ValueError: Se a senha estiver ausente ou tiver menos de MIN_PASSWORD_LENGTH caracteres.
     """
-    from src.controllers.auth_controller import get_current_admin
-    return get_current_admin(request, session)
+    if password is None or len(password) < MIN_PASSWORD_LENGTH:
+        raise ValueError(PASSWORD_LENGTH_MESSAGE)
+    return hash_password(password)
+
+
+def _ensure_admin_remains(session: Session, leaving_user: User) -> None:
+    """
+    Garante que ao menos um administrador continue existindo sem o usuário informado.
+
+    Usuários sem privilégio de administrador nunca violam a regra.
+
+    Args:
+        session: Sessão ativa do banco de dados.
+        leaving_user: Usuário que será excluído ou perderá o privilégio de administrador.
+
+    Raises:
+        ValueError: Se o usuário é o único administrador cadastrado.
+    """
+    if not leaving_user.is_admin:
+        return
+    other_admin = session.exec(
+        select(User.id).where(col(User.is_admin).is_(True), User.id != leaving_user.id)
+    ).first()
+    if other_admin is None:
+        raise ValueError(ADMIN_REQUIRED_MESSAGE)
+
+
+def _revoke_sessions(session: Session, user_id: int) -> None:
+    """
+    Remove todas as sessões administrativas de um usuário, encerrando seus acessos ativos.
+
+    A remoção entra na transação corrente e é confirmada junto com a alteração que a motivou.
+
+    Args:
+        session: Sessão ativa do banco de dados.
+        user_id: Identificador do usuário cujas sessões serão removidas.
+    """
+    session.exec(delete(AdminSession).where(col(AdminSession.user_id) == user_id))  # type: ignore
 
 
 def require_admin_user(
@@ -86,20 +135,17 @@ def require_admin_user(
 
 
 
-def get_all_users(session: Session | None = None) -> Sequence[User]:
+def get_all_users(session: Session) -> Sequence[User]:
     """
     Retorna todos os usuários cadastrados ordenados por login.
 
     Args:
-        session: Sessão do banco de dados (opcional).
+        session: Sessão ativa do banco de dados.
 
     Returns:
         Sequência de todos os usuários cadastrados.
     """
-    if session is not None:
-        return session.exec(select(User).order_by(User.login)).all()  # type: ignore
-    with Session(engine) as s:
-        return s.exec(select(User).order_by(User.login)).all()  # type: ignore
+    return session.exec(select(User).order_by(User.login)).all()  # type: ignore
 
 
 def get_user_by_id(session: Session, user_id: int) -> User | None:
@@ -116,11 +162,7 @@ def get_user_by_id(session: Session, user_id: int) -> User | None:
     return session.get(User, user_id)
 
 
-def create_user(
-    session: Session,
-    data: UserData | None = None,
-    **kwargs,
-) -> User:
+def create_user(session: Session, data: UserData) -> User:
     """
     Cria e persiste um novo usuário no banco de dados.
 
@@ -134,28 +176,14 @@ def create_user(
     Raises:
         ValueError: Caso o login já esteja cadastrado no sistema.
     """
-    user_data = data or UserData(
-        login=kwargs.get("login", ""),
-        password=kwargs.get("password", ""),
-        is_admin=kwargs.get("is_admin", False),
-    )
-
-    existing = session.exec(select(User).where(User.login == user_data.login)).first()
+    existing = session.exec(select(User).where(User.login == data.login)).first()
     if existing:
-        raise ValueError(f"O nome de usuário '{user_data.login}' já está em uso.")
-
-    raw_password = user_data.password or ""
-    # Evita rehashear caso a senha já seja um hash Argon2id válido
-    hashed_password = (
-        raw_password
-        if raw_password.startswith("$argon2id$")
-        else hash_password(raw_password)
-    )
+        raise ValueError(f"O nome de usuário '{data.login}' já está em uso.")
 
     new_user = User(
-        login=user_data.login,
-        password=hashed_password,
-        is_admin=user_data.is_admin,
+        login=data.login,
+        password=_hash_new_password(data.password),
+        is_admin=data.is_admin,
     )
     session.add(new_user)
     session.commit()
@@ -163,12 +191,7 @@ def create_user(
     return new_user
 
 
-def update_user(
-    session: Session,
-    user_id: int,
-    data: UserData | None = None,
-    **kwargs,
-) -> User:
+def update_user(session: Session, user_id: int, data: UserData) -> User:
     """
     Atualiza credenciais e permissões de um usuário existente.
 
@@ -181,32 +204,29 @@ def update_user(
         Instância de User atualizada.
 
     Raises:
-        ValueError: Se o usuário não existir ou o novo login já estiver em uso.
+        ValueError: Se o usuário não existir, o novo login já estiver em uso, a nova senha for
+            curta demais ou a alteração removesse o último administrador.
     """
     user = session.get(User, user_id)
     if not user:
         raise ValueError(f"Usuário com ID {user_id} não encontrado.")
 
-    user_data = data or UserData(
-        login=kwargs.get("login", user.login),
-        password=kwargs.get("password"),
-        is_admin=kwargs.get("is_admin", user.is_admin),
-    )
-
-    if user_data.login != user.login:
-        existing = session.exec(select(User).where(User.login == user_data.login)).first()
+    if data.login != user.login:
+        existing = session.exec(select(User).where(User.login == data.login)).first()
         if existing and existing.id != user_id:
-            raise ValueError(f"O nome de usuário '{user_data.login}' já está em uso.")
-        user.login = user_data.login
+            raise ValueError(f"O nome de usuário '{data.login}' já está em uso.")
 
-    if user_data.password:
-        user.password = (
-            user_data.password
-            if user_data.password.startswith("$argon2id$")
-            else hash_password(user_data.password)
-        )
+    if user.is_admin and not data.is_admin:
+        _ensure_admin_remains(session, user)
 
-    user.is_admin = user_data.is_admin
+    new_password_hash = _hash_new_password(data.password) if data.password else None
+
+    user.login = data.login
+    if new_password_hash:
+        user.password = new_password_hash
+        _revoke_sessions(session, user_id)
+
+    user.is_admin = data.is_admin
 
     session.add(user)
     session.commit()
@@ -231,7 +251,8 @@ def delete_user(
         True indicando sucesso da remoção.
 
     Raises:
-        ValueError: Caso o usuário tente excluir a própria conta ou o alvo não exista.
+        ValueError: Caso o usuário tente excluir a própria conta, o alvo não exista ou seja o
+            último administrador.
     """
     if current_user_id is not None and target_user_id == current_user_id:
         raise ValueError("Você não pode excluir sua própria conta em uso.")
@@ -240,6 +261,9 @@ def delete_user(
     if not user:
         raise ValueError(f"Usuário com ID {target_user_id} não encontrado.")
 
+    _ensure_admin_remains(session, user)
+
+    _revoke_sessions(session, target_user_id)
     session.delete(user)
     session.commit()
     return True

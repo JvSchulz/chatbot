@@ -1,48 +1,49 @@
 from pathlib import Path
-from typing import Annotated
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Depends, HTTPException, status, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 from slowapi.errors import RateLimitExceeded
-from slowapi import _rate_limit_exceeded_handler
 
 from src.core import config
-from src.core.db import create_db_and_tables, engine, SessionDep
-from src.core.security import SESSION_COOKIE_NAME, generate_csrf_token, get_session_token_from_request
+from src.core.db import create_db_and_tables, engine, ensure_bot_identity_schema
 from src.core.middleware import SecurityHeadersMiddleware, CSRFProtectionMiddleware
 from src.models import menu_model, user_model, chat_history_model, user_session_model, session_model
-from src.models.user_model import User
-from src.services.user_service import seed_default_admin
-from src.services.menu_service import build_menu_split_view_context
-from src.controllers.auth_controller import router as auth_router, get_current_admin, limiter
+from src.services.user_service import seed_first_admin
+from src.controllers.auth_controller import router as auth_router, get_current_admin, limiter, login_rate_limit_handler
+from src.controllers.history_controller import router as history_router
 from src.controllers.menus_controller import router as menus_router
 from src.controllers.users_controller import router as users_router
 from src.controllers.webhook_controller import setup_webhook_handlers
 from pywa.client import WhatsApp
-from dotenv import load_dotenv
-import os
 import logging
 
-load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
+# A PyWa registra as atualizações brutas (telefone, BSUID e texto) em DEBUG.
+logging.getLogger("pywa").setLevel(logging.INFO)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Runs when FastAPI starts up
+    """
+    Prepara o banco na inicialização: cria as tabelas, confere a migração e cria o primeiro administrador.
+
+    Args:
+        app: Aplicação FastAPI que está iniciando.
+    """
     create_db_and_tables()
+    ensure_bot_identity_schema(engine)
+    initial_password = config.settings.admin_initial_password
     with Session(engine) as session:
-        seed_default_admin(session)
+        seed_first_admin(session, initial_password.get_secret_value() if initial_password else None)
     yield
-    # Code here would run on server shutdown (if needed)
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # pyright: ignore[reportArgumentType]
+app.add_exception_handler(RateLimitExceeded, login_rate_limit_handler)
 
 
 @app.exception_handler(HTTPException)
@@ -70,55 +71,27 @@ app.mount(
     name="static",
 )
 
-app.mount(
-    "/assets",
-    StaticFiles(directory=BASE_DIR / "src" / "assets"),
-    name="assets",
-)
-
-templates = config.templates
 app.include_router(auth_router)
 app.include_router(menus_router)
 app.include_router(users_router)
+app.include_router(history_router)
 
 wa = WhatsApp(
-    phone_id=os.getenv("WA_PHONE_ID"),
-    token=os.getenv("WA_TOKEN"),
+    phone_id=config.settings.wa_phone_id,
+    token=config.settings.wa_token.get_secret_value(),
+    app_secret=config.settings.app_secret.get_secret_value(),
     server=app,
-    verify_token="chatbotudesc",
+    verify_token=config.settings.wa_verify_token.get_secret_value(),
     webhook_endpoint="/webhook",
-    validate_updates=False,
+    validate_updates=True,
 )
 
 setup_webhook_handlers(wa)
 
 
-@app.get("/", response_class=HTMLResponse)
-def index(
-    request: Request,
-    session: SessionDep,
-    current_user: Annotated[User, Depends(get_current_admin)],
-):
+@app.get("/", dependencies=[Depends(get_current_admin)])
+def index() -> RedirectResponse:
     """
-    Página inicial do painel de administração.
-    Carrega o gerenciador de menus em layout split-view como tela padrão.
+    Redireciona a raiz do painel para o gerenciador de menus, a tela padrão dos administradores.
     """
-    context = build_menu_split_view_context(session)
-    context["current_user"] = current_user
-    session_id = get_session_token_from_request(request)
-    context["csrf_token"] = generate_csrf_token(session_id) if session_id else ""
-    return templates.TemplateResponse(request=request, name="index.html", context=context)
-
-
-@app.get("/historico", response_class=HTMLResponse)
-def chat_history(
-    request: Request,
-    current_user: Annotated[User, Depends(get_current_admin)],
-):
-    session_id = get_session_token_from_request(request)
-    csrf_token = generate_csrf_token(session_id) if session_id else ""
-    return templates.TemplateResponse(
-        request=request,
-        name="chat_history.html",
-        context={"current_user": current_user, "csrf_token": csrf_token},
-    )
+    return RedirectResponse(url="/menus", status_code=status.HTTP_303_SEE_OTHER)

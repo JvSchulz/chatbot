@@ -1,7 +1,6 @@
 from typing import Annotated
 from fastapi import APIRouter, Request, Form, HTTPException, status, Depends
 from fastapi.responses import HTMLResponse
-from sqlmodel import Session
 
 from src.core import config
 from src.core.db import SessionDep
@@ -137,14 +136,6 @@ def parse_user_form(
     return UserData(login=login, password=clean_password, is_admin=is_admin)
 
 
-def get_user_update_payload(
-    session: SessionDep,
-    form_data: Annotated[UserData, Depends(parse_user_form)],
-) -> tuple[Session, UserData]:
-    """Empacota a sessão do banco de dados e os dados do formulário de usuário para atualização."""
-    return session, form_data
-
-
 @router.post("", response_class=HTMLResponse)
 def user_create_submit(
     request: Request,
@@ -163,7 +154,7 @@ def user_create_submit(
         Card do usuário criado ou alerta de erro caso o login já esteja em uso.
     """
     try:
-        new_user = create_user(session, data=user_data)
+        new_user = create_user(session, user_data)
         return templates.TemplateResponse(
             request=request,
             name="partials/_user_card.html",
@@ -174,7 +165,7 @@ def user_create_submit(
         return templates.TemplateResponse(
             request=request,
             name="partials/_user_card.html",
-            context={"user": None, "error": str(exc)},
+            context={"user": None, "draft": user_data, "error": str(exc)},
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -183,7 +174,8 @@ def user_create_submit(
 def user_update_submit(
     request: Request,
     user_id: int,
-    payload: Annotated[tuple[Session, UserData], Depends(get_user_update_payload)],
+    session: SessionDep,
+    user_data: Annotated[UserData, Depends(parse_user_form)],
 ):
     """
     Atualiza dados de um usuário existente.
@@ -191,14 +183,14 @@ def user_update_submit(
     Args:
         request: Objeto da requisição HTTP.
         user_id: Identificador do usuário a ser atualizado.
-        payload: Tupla contendo sessão e dados estruturados do formulário.
+        session: Sessão ativa do banco de dados.
+        user_data: Dados estruturados do formulário.
 
     Returns:
         Card do usuário atualizado ou mensagem de erro 400.
     """
-    session, user_data = payload
     try:
-        updated_user = update_user(session, user_id=user_id, data=user_data)
+        updated_user = update_user(session, user_id, user_data)
         return templates.TemplateResponse(
             request=request,
             name="partials/_user_card.html",
@@ -210,7 +202,7 @@ def user_update_submit(
         return templates.TemplateResponse(
             request=request,
             name="partials/_user_card.html",
-            context={"user": user, "error": str(exc)},
+            context={"user": user, "draft": user_data, "error": str(exc)},
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 

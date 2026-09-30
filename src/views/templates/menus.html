@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% set active_page = "menus" %}
+
+{% block title %}Menus - Painel de Administração{% endblock %}
+
+{% block content %}
+<section class="page-header page-header-compact">
+    <h2 class="page-title">Gerenciador de Menus</h2>
+    <p class="page-subtitle">Selecione um menu na coluna esquerda para editar ou cadastre uma nova opção.</p>
+</section>
+
+{% if not has_root %}
+<div class="alert alert-danger alert-prominent">
+    Atenção: Nenhum menu está definido como Raiz. Marque a opção "Definir como Menu Raiz" em um menu para
+    desbloquear a navegação do chatbot.
+</div>
+{% endif %}
+
+<section class="split-layout">
+    <div class="split-sidebar">
+        <div class="split-sidebar-header">
+            <h3>Menus Cadastrados</h3>
+            <button type="button" hx-get="/menus/novo/card" hx-target="#detail-pane" hx-swap="innerHTML"
+                class="btn btn-primary btn-small">
+                + Novo Menu
+            </button>
+        </div>
+        <div id="menu-list-container" class="split-list" hx-get="/menus/lista"
+            hx-trigger="menuListChanged from:body">
+            {% include "partials/_menu_list_items.html" %}
+        </div>
+    </div>
+
+    <div id="detail-pane" class="split-detail">
+        {% if selected_menu %}
+        {% set menu = selected_menu %}
+        {% include "partials/_menu_card.html" %}
+        {% else %}
+        {% set menu = none %}
+        {% include "partials/_menu_card.html" %}
+        {% endif %}
+    </div>
+</section>
+{% endblock %}

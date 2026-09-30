@@ -1,10 +1,11 @@
-<div class="form-card" style="margin: 0; max-width: 100%;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+{% set source = draft or user %}
+<div class="form-card form-card-detail"{% if user and user.id %} data-entity-id="{{ user.id }}"{% endif %}>
+    <div class="card-header">
         <div>
-            <h2 class="page-title" style="font-size: 1.35rem; margin-bottom: 0.25rem;">
+            <h2 class="page-title card-title">
                 {% if user and user.id %}Editar Usuário: {{ user.login }}{% else %}Novo Usuário{% endif %}
             </h2>
-            <p class="page-subtitle" style="font-size: 0.85rem;">
+            <p class="page-subtitle card-subtitle">
                 Gerencie credenciais e privilégios de acesso ao painel.
             </p>
         </div>
@@ -14,8 +15,7 @@
                 hx-target="#user-detail-pane"
                 hx-swap="innerHTML"
                 hx-confirm="Tem certeza que deseja excluir o usuário '{{ user.login }}'?"
-                class="btn btn-secondary"
-                style="color: #dc2626; border-color: #fca5a5; font-size: 0.85rem; padding: 0.4rem 0.8rem;">
+                class="btn btn-secondary btn-danger-outline">
             Excluir
         </button>
         {% endif %}
@@ -23,9 +23,7 @@
 
     <div id="user-error">
         {% if error %}
-        <div class="alert alert-danger" style="margin-bottom: 1rem; padding: 0.75rem 1rem; background-color: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: var(--radius);">
-            {{ error }}
-        </div>
+        <div class="alert alert-danger">{{ error }}</div>
         {% endif %}
     </div>
 
@@ -40,7 +38,7 @@
                    name="login"
                    class="form-input"
                    placeholder="Ex: admin"
-                   value="{% if user %}{{ user.login }}{% endif %}"
+                   value="{% if source %}{{ source.login }}{% endif %}"
                    required>
         </div>
 
@@ -54,23 +52,23 @@
                    {% if not user or not user.id %}required{% endif %}>
         </div>
 
-        <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem;">
+        <div class="form-group form-group-inline">
             <input type="checkbox"
                    id="is_admin"
                    name="is_admin"
                    value="true"
-                   {% if user and user.is_admin %}checked{% endif %}
-                   style="width: 18px; height: 18px;">
-            <label for="is_admin" style="margin-bottom: 0; cursor: pointer;">
+                   class="form-checkbox"
+                   {% if source and source.is_admin %}checked{% endif %}>
+            <label for="is_admin">
                 Perfil de Administrador (acesso completo)
             </label>
         </div>
 
-        <div style="display: flex; gap: 0.75rem; margin-top: 1.5rem;">
+        <div class="form-actions">
             <button type="submit" class="btn btn-primary">
                 Salvar Usuário
             </button>
-            <a href="javascript:void(0)"
+            <a href="#"
                hx-get="{% if user and user.id %}/usuarios/{{ user.id }}/card{% else %}/usuarios/novo/card{% endif %}"
                hx-target="#user-detail-pane"
                class="btn btn-secondary">

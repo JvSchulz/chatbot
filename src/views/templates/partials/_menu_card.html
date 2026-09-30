@@ -1,10 +1,11 @@
-<div class="form-card" style="margin: 0; max-width: 100%;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+{% set source = draft or menu %}
+<div class="form-card form-card-detail"{% if menu and menu.id %} data-entity-id="{{ menu.id }}"{% endif %}>
+    <div class="card-header">
         <div>
-            <h2 class="page-title" style="font-size: 1.35rem; margin-bottom: 0.25rem;">
+            <h2 class="page-title card-title">
                 {% if menu and menu.id %}Editar Menu: {{ menu.name }}{% else %}Novo Menu{% endif %}
             </h2>
-            <p class="page-subtitle" style="font-size: 0.85rem;">
+            <p class="page-subtitle card-subtitle">
                 Configure nome, botão e mensagem de resposta deste nó da árvore.
             </p>
         </div>
@@ -14,8 +15,7 @@
                 hx-target="#detail-pane"
                 hx-swap="innerHTML"
                 hx-confirm="Tem certeza que deseja excluir o menu '{{ menu.name }}'?"
-                class="btn btn-secondary"
-                style="color: #dc2626; border-color: #fca5a5; font-size: 0.85rem; padding: 0.4rem 0.8rem;">
+                class="btn btn-secondary btn-danger-outline">
             Excluir
         </button>
         {% endif %}
@@ -23,9 +23,7 @@
 
     <div id="menu-error">
         {% if error %}
-        <div class="alert alert-danger" style="margin-bottom: 1rem; padding: 0.75rem 1rem; background-color: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: var(--radius);">
-            {{ error }}
-        </div>
+        <div class="alert alert-danger">{{ error }}</div>
         {% endif %}
     </div>
 
@@ -40,7 +38,7 @@
                    name="name"
                    class="form-input"
                    placeholder="Ex: menu_atendimento"
-                   value="{% if menu %}{{ menu.name }}{% else %}Novo Menu{% endif %}"
+                   value="{% if source %}{{ source.name }}{% else %}Novo Menu{% endif %}"
                    required>
         </div>
 
@@ -51,7 +49,7 @@
                    name="selection_name"
                    class="form-input"
                    placeholder="Ex: 1 - Falar com Atendente"
-                   value="{% if menu %}{{ menu.selection_name }}{% endif %}"
+                   value="{% if source %}{{ source.selection_name }}{% endif %}"
                    required>
         </div>
 
@@ -62,48 +60,46 @@
                       class="form-textarea"
                       rows="4"
                       placeholder="Mensagem exibida ao selecionar este item"
-                      required>{% if menu %}{{ menu.message }}{% endif %}</textarea>
+                      required>{% if source %}{{ source.message }}{% endif %}</textarea>
         </div>
 
-        <!-- Checkbox de Menu Raiz -->
-        <div class="form-group" style="margin-bottom: 1.25rem;">
-            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: 600;">
+        <div class="form-group form-group-root">
+            <label class="checkbox-label">
                 <input type="checkbox"
                        id="is_root"
                        name="is_root"
                        value="true"
                        {% if is_current_root %}checked{% endif %}
-                       onchange="const pc = document.getElementById('parent-container'); if (pc) pc.style.display = this.checked ? 'none' : 'block';">
+                       {% if not can_toggle_root %}disabled{% endif %}>
                 <span>Definir como Menu Raiz (Principal)</span>
             </label>
-            {% if not is_current_root and root_menu %}
-            <small style="color: var(--text-secondary); display: block; margin-top: 0.25rem;">
-                Ao marcar este menu como raiz, o menu '{{ root_menu.name }}' passará a ser um submenu da nova raiz.
+            {% if not can_toggle_root and root_menu %}
+            <small class="form-hint">
+                O menu '{{ root_menu.name }}' já é o menu raiz. Só pode existir uma raiz.
             </small>
             {% endif %}
         </div>
 
-        <!-- Seletor de Menu Pai (apenas para não-raiz) -->
-        <div id="parent-container" class="form-group" style="{% if is_current_root %}display: none;{% endif %}">
+        <div id="parent-container" class="form-group{% if is_current_root %} is-hidden{% endif %}">
             <label for="parent_id">Menu Pai</label>
             <select id="parent_id" name="parent_id" class="form-select">
-                <option value="" {% if not menu or not menu.parent_id %}selected{% endif %}>Nenhum (Sem menu pai)</option>
+                <option value="" {% if not source or not source.parent_id %}selected{% endif %}>Nenhum (Sem menu pai)</option>
                 {% for parent in valid_parents %}
-                <option value="{{ parent.id }}" {% if menu and menu.parent_id == parent.id %}selected{% endif %}>
+                <option value="{{ parent.id }}" {% if source and source.parent_id == parent.id %}selected{% endif %}>
                     {{ parent.name }} ({{ parent.selection_name }})
                 </option>
                 {% endfor %}
             </select>
-            <small style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.25rem; display: block;">
+            <small class="form-hint">
                 Menus que gerariam ciclos hierárquicos não são exibidos nesta lista.
             </small>
         </div>
 
-        <div style="display: flex; gap: 0.75rem; margin-top: 1.5rem;">
+        <div class="form-actions">
             <button type="submit" class="btn btn-primary">
                 Salvar Menu
             </button>
-            <a href="javascript:void(0)"
+            <a href="#"
                hx-get="{% if menu and menu.id %}/menus/{{ menu.id }}/card{% else %}/menus/novo/card{% endif %}"
                hx-target="#detail-pane"
                class="btn btn-secondary">

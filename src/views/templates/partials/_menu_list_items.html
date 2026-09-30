@@ -1,25 +1,22 @@
 {% for menu in menus %}
-<a href="javascript:void(0)"
+<a href="#"
    hx-get="/menus/{{ menu.id }}/card"
    hx-target="#detail-pane"
    hx-swap="innerHTML"
-   class="split-list-item {% if selected_menu and selected_menu.id == menu.id %}active{% endif %}">
+   data-id="{{ menu.id }}"
+   class="split-list-item{% if selected_menu and selected_menu.id == menu.id %} active{% endif %}">
     <div>
         <strong>{{ menu.name }}</strong>
-        <div style="font-size: 0.8rem; color: var(--text-secondary);">{{ menu.selection_name }}</div>
+        <div class="split-list-item-detail">{{ menu.selection_name }}</div>
     </div>
     {% if menu.parent_id %}
-    <span style="font-size: 0.75rem; background: #e2e8f0; padding: 0.15rem 0.4rem; border-radius: 4px; color: var(--text-secondary);">
-        Submenu
-    </span>
+    <span class="badge badge-neutral">Submenu</span>
     {% else %}
-    <span style="font-size: 0.75rem; background: #e6f6ee; padding: 0.15rem 0.4rem; border-radius: 4px; color: var(--primary-color);">
-        Raiz
-    </span>
+    <span class="badge badge-primary">Raiz</span>
     {% endif %}
 </a>
 {% else %}
-<div style="padding: 1.5rem; text-align: center; color: var(--text-secondary);">
+<div class="empty-state">
     Nenhum menu cadastrado.
 </div>
 {% endfor %}

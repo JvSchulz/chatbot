@@ -1,176 +1,237 @@
 """
-Testes de ponta a ponta (E2E) simulando o ciclo de vida completo do webhook do WhatsApp.
+Testes de ponta a ponta do webhook: eventos assinados via HTTP, respostas enviadas e linhas gravadas.
 """
 
-from unittest.mock import MagicMock
+import logging
+import re
+import pytest
+from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 from pywa.client import WhatsApp
-from pywa.types import Button
-from src.models.menu_model import Menu
+from pywa.types import SectionList
 from src.models.chat_history_model import ChatHistory
-from src.services.webhook.message_handler import (
-    ACTION_ASK_QUESTION,
-    ACTION_ROOT,
-    handle_message,
-    handle_callback_button,
-    handle_callback_selection,
-)
+from src.models.menu_model import Menu
+from src.models.user_session_model import UserSession
+from src.services.webhook.message_handler import ACTION_ASK_QUESTION, ACTION_ROOT
+from tests.conftest import sign_webhook
+from main import app
+
+ROOT_MESSAGE = "Bem-vindo à UDESC. Como podemos ajudar?"
 
 
-def _seed_test_menus(session: Session) -> dict[str, Menu]:
-    """Cria uma árvore representativa de menus para os testes E2E."""
-    root_grad = Menu(name="Graduação", selection_name="Grad", message="Cursos de Graduação", parent_id=None)
-    root_pos = Menu(name="Pós-Graduação", selection_name="Pós", message="Cursos de Pós-Graduação", parent_id=None)
-    session.add(root_grad)
-    session.add(root_pos)
+@pytest.fixture(name="outbound")
+def outbound_fixture(monkeypatch) -> list[dict]:
+    """Substitui o envio da PyWa por um registrador local, para nada sair da máquina."""
+    sent: list[dict] = []
+
+    def fake_send_message(self, to, text, **kwargs):
+        sent.append({"to": to, "text": text, **kwargs})
+        return "wamid.SAIDA_LOCAL"
+
+    monkeypatch.setattr(WhatsApp, "send_message", fake_send_message)
+    return sent
+
+
+@pytest.fixture(name="client")
+def client_fixture() -> TestClient:
+    return TestClient(app)
+
+
+@pytest.fixture(name="tree")
+def tree_fixture(session: Session) -> dict[str, Menu]:
+    """Raiz com dois filhos; 'graduacao' tem o filho 'matricula', que tem a folha 'documentos'."""
+    root = Menu(name="menu_inicio", selection_name="Início", message=ROOT_MESSAGE)
+    session.add(root)
     session.commit()
-    session.refresh(root_grad)
-    session.refresh(root_pos)
-
-    sub_matr = Menu(name="Matrícula", selection_name="Matr", message="Opções de matrícula", parent_id=root_grad.id)
-    sub_cal = Menu(name="Calendário", selection_name="Cal", message="Calendário acadêmico", parent_id=root_grad.id)
-    session.add(sub_matr)
-    session.add(sub_cal)
+    grad = Menu(name="Graduação", selection_name="Grad", message="Cursos de Graduação", parent_id=root.id)
+    office = Menu(name="Secretaria", selection_name="Sec", message="Atendimento geral", parent_id=root.id)
+    session.add(grad)
+    session.add(office)
     session.commit()
-    session.refresh(sub_matr)
-    session.refresh(sub_cal)
-
-    leaf_docs = Menu(
-        name="Documentos",
-        selection_name="Docs",
-        message="Apresente RG, CPF e Histórico.",
-        parent_id=sub_matr.id,
+    matriculation = Menu(name="Matrícula", selection_name="Matr", message="Opções de matrícula", parent_id=grad.id)
+    session.add(matriculation)
+    session.commit()
+    docs = Menu(
+        name="Documentos", selection_name="Docs", message="Apresente RG e CPF.", parent_id=matriculation.id
     )
-    session.add(leaf_docs)
+    session.add(docs)
     session.commit()
-    session.refresh(leaf_docs)
-
-    return {
-        "root_grad": root_grad,
-        "root_pos": root_pos,
-        "sub_matr": sub_matr,
-        "sub_cal": sub_cal,
-        "leaf_docs": leaf_docs,
-    }
+    return {"root": root, "grad": grad, "office": office, "matriculation": matriculation, "docs": docs}
 
 
-def test_e2e_1_first_inbound_message(session: Session, mock_wa_client: MagicMock, message_factory):
-    """
-    E2E 1 - Primeira mensagem recebida: deve responder com menu raiz interativo e salvar log.
-    """
-    _seed_test_menus(session)
-    msg = message_factory(wa_id="5547999990001", name="Aluno Novo", text="Olá!")
-
-    handle_message(client=mock_wa_client, msg=msg)
-
-    # 1. Verifica despacho da mensagem
-    mock_wa_client.send_message.assert_called_once()
-    call_kwargs = mock_wa_client.send_message.call_args.kwargs
-    assert call_kwargs["to"] == "5547999990001"
-    assert "Aluno Novo" in call_kwargs["text"]
-    buttons = call_kwargs["buttons"]
-    assert isinstance(buttons, list)
-    callbacks = [b.callback_data for b in buttons]
-    assert ACTION_ASK_QUESTION in callbacks
-
-    # 2. Verifica registro de log no banco de dados
-    history = session.exec(select(ChatHistory).where(ChatHistory.sender_id == "5547999990001")).all()
-    assert len(history) >= 1
-    inbound_record = next(h for h in history if h.role == "user")
-    assert inbound_record.content == "Olá!"
+def _post(client: TestClient, body: bytes) -> int:
+    response = client.post(
+        "/webhook",
+        content=body,
+        headers={"Content-Type": "application/json", "X-Hub-Signature-256": sign_webhook(body)},
+    )
+    return response.status_code
 
 
-def test_e2e_2_submenu_navigation(session: Session, mock_wa_client: MagicMock, button_factory):
-    """
-    E2E 2 - Navegação em submenu: deve enviar os filhos diretos sem o botão de pergunta.
-    """
-    menus = _seed_test_menus(session)
-    grad_id = menus["root_grad"].id
-
-    btn = button_factory(wa_id="5547999990002", data=f"menu:{grad_id}")
-
-    handle_callback_button(client=mock_wa_client, btn=btn)
-
-    mock_wa_client.send_message.assert_called_once()
-    call_kwargs = mock_wa_client.send_message.call_args.kwargs
-    assert call_kwargs["to"] == "5547999990002"
-    buttons = call_kwargs.get("buttons")
-    assert isinstance(buttons, list)
-    assert len(buttons) == 2  # Matrícula e Calendário
-    callbacks = [b.callback_data for b in buttons]
-    assert f"menu:{menus['sub_matr'].id}" in callbacks
-    assert f"menu:{menus['sub_cal'].id}" in callbacks
-    assert ACTION_ASK_QUESTION not in callbacks
+def _rows(session: Session) -> list[ChatHistory]:
+    session.expire_all()
+    return list(session.exec(select(ChatHistory).order_by(ChatHistory.id)).all())  # type: ignore
 
 
-def test_e2e_3_leaf_menu_and_back_navigation(session: Session, mock_wa_client: MagicMock, button_factory):
-    """
-    E2E 3 - Menu folha: deve renderizar mensagem de conteúdo com botões 'Voltar' e 'Voltar ao início'.
-    """
-    menus = _seed_test_menus(session)
-    leaf_id = menus["leaf_docs"].id
-    parent_id = menus["sub_matr"].id
+def test_text_lists_the_root_children_and_the_ask_option(
+    client: TestClient, session: Session, outbound: list[dict], webhook_body, tree
+):
+    status = _post(client, webhook_body("text", "Olá!", "554798765432", "BR.1000000000006"))
 
-    btn = button_factory(wa_id="5547999990003", data=f"menu:{leaf_id}")
-
-    handle_callback_button(client=mock_wa_client, btn=btn)
-
-    mock_wa_client.send_message.assert_called_once()
-    call_kwargs = mock_wa_client.send_message.call_args.kwargs
-    assert call_kwargs["to"] == "5547999990003"
-    assert "Apresente RG, CPF e Histórico." in call_kwargs["text"]
-    buttons = call_kwargs["buttons"]
-    assert len(buttons) == 2
-
-    back_button = next(b for b in buttons if b.callback_data == f"menu:{parent_id}")
-    assert back_button.title == "Voltar"
-
-    root_button = next(b for b in buttons if b.callback_data == ACTION_ROOT)
-    assert root_button.title == "Voltar ao início"
+    assert status == 200
+    assert len(outbound) == 1
+    assert outbound[0]["to"] == "5547998765432"
+    assert outbound[0]["text"] == ROOT_MESSAGE
+    assert [b.callback_data for b in outbound[0]["buttons"]] == [
+        f"menu:{tree['grad'].id}", f"menu:{tree['office'].id}", ACTION_ASK_QUESTION,
+    ]
+    user_row, bot_row = _rows(session)
+    assert (user_row.role, user_row.user_id, user_row.wa_id, user_row.content) == (
+        "user", "BR.1000000000006", "554798765432", "Olá!",
+    )
+    assert (bot_row.role, bot_row.content) == ("bot", ROOT_MESSAGE)
 
 
-def test_e2e_4_parent_back_action(session: Session, mock_wa_client: MagicMock, button_factory):
-    """
-    E2E 4 - Ação de voltar para o menu pai a partir de um menu folha.
-    """
-    menus = _seed_test_menus(session)
-    parent_id = menus["sub_matr"].id
+def test_button_to_a_submenu_lists_its_children_without_the_ask_option(
+    client: TestClient, session: Session, outbound: list[dict], webhook_body, tree
+):
+    body = webhook_body("button", f"menu:{tree['grad'].id}", "554798765432", "BR.1000000000006", "Grad")
 
-    btn = button_factory(wa_id="5547999990004", data=f"menu:{parent_id}")
+    assert _post(client, body) == 200
 
-    handle_callback_button(client=mock_wa_client, btn=btn)
-
-    mock_wa_client.send_message.assert_called_once()
-    call_kwargs = mock_wa_client.send_message.call_args.kwargs
-    assert call_kwargs["to"] == "5547999990004"
-    assert "Opções de matrícula" in call_kwargs["text"]
+    assert outbound[0]["text"] == "Cursos de Graduação"
+    assert [b.callback_data for b in outbound[0]["buttons"]] == [f"menu:{tree['matriculation'].id}"]
+    click, reply = _rows(session)
+    assert (click.role, click.content, click.menu_id) == ("user", "Grad", tree["grad"].id)
+    assert (reply.role, reply.menu_id) == ("bot", tree["grad"].id)
 
 
-def test_e2e_5_model_unavailable_fallback(session: Session, mock_wa_client: MagicMock, button_factory):
-    """
-    E2E 5 - Fallback de modelo indisponível: clicar em 'Fazer Pergunta' restaura menu raiz com aviso.
-    """
-    _seed_test_menus(session)
-    btn = button_factory(wa_id="5547999990005", data=ACTION_ASK_QUESTION)
+def test_list_selection_of_a_leaf_offers_back_and_start(
+    client: TestClient, session: Session, outbound: list[dict], webhook_body, tree
+):
+    body = webhook_body("list", f"menu:{tree['docs'].id}", "554798765432", "BR.1000000000006", "Docs")
 
-    handle_callback_button(client=mock_wa_client, btn=btn)
+    assert _post(client, body) == 200
 
-    mock_wa_client.send_message.assert_called_once()
-    call_kwargs = mock_wa_client.send_message.call_args.kwargs
-    assert call_kwargs["to"] == "5547999990005"
-    assert "temporariamente indisponível" in call_kwargs["text"]
+    assert outbound[0]["text"] == "Apresente RG e CPF.\n\nDeseja realizar outra consulta?"
+    assert [(b.title, b.callback_data) for b in outbound[0]["buttons"]] == [
+        ("Voltar", f"menu:{tree['matriculation'].id}"),
+        ("Voltar ao início", ACTION_ROOT),
+    ]
+    assert _rows(session)[0].menu_id == tree["docs"].id
 
 
-def test_e2e_6_deleted_menu_edge_case(session: Session, mock_wa_client: MagicMock, button_factory):
-    """
-    E2E 6 - Caso de borda: callback para menu excluído do banco direciona ao menu principal.
-    """
-    _seed_test_menus(session)
-    btn = button_factory(wa_id="5547999990006", data="menu:99999")
+def test_leaf_directly_under_the_root_offers_only_back_to_start(
+    client: TestClient, session: Session, outbound: list[dict], webhook_body, tree
+):
+    body = webhook_body("button", f"menu:{tree['office'].id}", "554798765432", "BR.1000000000006", "Sec")
 
-    handle_callback_button(client=mock_wa_client, btn=btn)
+    assert _post(client, body) == 200
 
-    mock_wa_client.send_message.assert_called_once()
-    call_kwargs = mock_wa_client.send_message.call_args.kwargs
-    assert call_kwargs["to"] == "5547999990006"
-    assert "Esse menu não está mais disponível" in call_kwargs["text"]
+    assert [b.callback_data for b in outbound[0]["buttons"]] == [ACTION_ROOT]
+
+
+def test_malformed_payload_returns_the_root_menu(
+    client: TestClient, session: Session, outbound: list[dict], webhook_body, tree
+):
+    body = webhook_body("button", "menu:abc", "554798765432", "BR.1000000000006", "Quebrado")
+
+    assert _post(client, body) == 200
+
+    assert outbound[0]["text"] == ROOT_MESSAGE
+    assert _rows(session)[0].menu_id is None
+
+
+def test_contact_without_wa_id_is_answered_at_the_bsuid(
+    client: TestClient, session: Session, outbound: list[dict], webhook_body, tree
+):
+    body = webhook_body("text", "Oi", None, "BR.1000000000005")
+
+    assert _post(client, body) == 200
+
+    assert outbound[0]["to"] == "BR.1000000000005"
+    assert outbound[0]["text"] == ROOT_MESSAGE
+    user_row, bot_row = _rows(session)
+    assert (user_row.user_id, user_row.wa_id) == ("BR.1000000000005", None)
+    assert (bot_row.role, bot_row.user_id) == ("bot", "BR.1000000000005")
+    session.expire_all()
+    stored = session.exec(select(UserSession)).one()
+    assert (stored.user_id, stored.wa_id) == ("BR.1000000000005", None)
+
+
+def test_deleted_menu_button_falls_back_to_the_unavailable_notice(
+    client: TestClient, session: Session, outbound: list[dict], webhook_body, tree
+):
+    body = webhook_body("button", "menu:99999", "554798765432", "BR.1000000000006", "Antigo")
+
+    assert _post(client, body) == 200
+
+    assert outbound[0]["text"].startswith("Esse menu não está mais disponível")
+    assert _rows(session)[0].menu_id is None
+
+
+def test_ask_question_returns_the_unavailable_notice_with_the_root_options(
+    client: TestClient, session: Session, outbound: list[dict], webhook_body, tree
+):
+    body = webhook_body("button", ACTION_ASK_QUESTION, "554798765432", "BR.1000000000006", "Fazer Pergunta")
+
+    assert _post(client, body) == 200
+
+    assert "temporariamente indisponível" in outbound[0]["text"]
+    assert [b.callback_data for b in outbound[0]["buttons"]][-1] == ACTION_ASK_QUESTION
+
+
+def test_three_children_are_sent_as_a_section_list(
+    client: TestClient, session: Session, outbound: list[dict], webhook_body, tree
+):
+    session.add(Menu(name="Extensão", selection_name="Ext", message="Projetos", parent_id=tree["root"].id))
+    session.commit()
+
+    assert _post(client, webhook_body("text", "Olá", "554798765432", "BR.1000000000006")) == 200
+
+    assert isinstance(outbound[0]["buttons"], SectionList)
+
+
+def test_webhook_flow_logs_carry_no_phone_bsuid_or_text(
+    client: TestClient, session: Session, outbound: list[dict], webhook_body, tree, caplog
+):
+    with caplog.at_level(logging.INFO):
+        _post(client, webhook_body("text", "meu CPF é 123", "554799998888", "BR.9999999999876"))
+        _post(client, webhook_body("button", f"menu:{tree['grad'].id}", "554799998888", "BR.9999999999876", "Grad"))
+
+    assert "[INBOUND]" in caplog.text and "[CALLBACK]" in caplog.text
+    for secret in ("554799998888", "5547999998888", "BR.9999999999876", "meu CPF", "123"):
+        assert secret not in caplog.text
+
+
+def test_database_failure_during_a_webhook_leaks_no_personal_data(
+    client: TestClient, session: Session, outbound: list[dict], webhook_body, tree, caplog, monkeypatch
+):
+    from sqlalchemy.exc import OperationalError
+
+    def locked(*args, **kwargs):
+        raise OperationalError("INSERT INTO chat_histories", ("BR.1234567890123", "554799998888", "meu CPF"), Exception("locked"))
+
+    monkeypatch.setattr("src.services.webhook.message_handler.save_user_log", locked)
+
+    with caplog.at_level(logging.DEBUG):
+        status = _post(client, webhook_body("text", "meu CPF é 123", "554799998888", "BR.1234567890123"))
+
+    assert status == 200
+    assert "OperationalError" in caplog.text
+    for secret in ("554799998888", "BR.1234567890123", "meu CPF", "INSERT"):
+        assert secret not in caplog.text
+
+
+def test_stored_xss_payload_from_a_user_is_escaped_in_the_history_page(
+    client: TestClient, session: Session, outbound: list[dict], webhook_body, tree, auth_client: TestClient
+):
+    payload = "<img src=x onerror=alert(1)>"
+
+    assert _post(client, webhook_body("text", payload, "554798765432", "BR.1000000000009")) == 200
+
+    page = auth_client.get("/historico")
+    assert page.status_code == 200
+    assert payload not in page.text
+    assert "&lt;img src=x onerror=alert(1)&gt;" in page.text
+    assert not re.search(r"<img[^>]*onerror", page.text)

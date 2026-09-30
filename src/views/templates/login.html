@@ -1,25 +1,21 @@
-{% extends "index.html" %}
+{% extends "base.html" %}
 
 {% block title %}Login - Painel de Administração{% endblock %}
-{% block nav_menus %}{% endblock %}
-{% block nav_login %}active{% endblock %}
 
 {% block header %}{% endblock %}
 
 {% block content %}
-<div style="display: flex; align-items: center; justify-content: center; min-height: 70vh;">
-    <div class="form-card" style="width: 100%; max-width: 400px; margin: auto;">
-        <div style="text-align: center; margin-bottom: 1.5rem;">
-            <div class="logo" style="margin: 0 auto 1rem; width: 44px; height: 44px; font-size: 1.2rem; background-color: var(--primary-color); border-radius: var(--radius); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">CB</div>
-            <h2 style="font-size: 1.4rem; font-weight: 700;">Login Administrativo</h2>
-            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.25rem;">Acesse o painel de gerenciamento do chatbot</p>
+<div class="login-wrapper">
+    <div class="form-card login-card">
+        <div class="login-heading">
+            <div class="logo login-logo">CB</div>
+            <h2 class="login-title">Login Administrativo</h2>
+            <p class="login-subtitle">Acesse o painel de gerenciamento do chatbot</p>
         </div>
 
-        <div id="login-error" style="margin-bottom: 1rem;">
+        <div id="login-error" class="login-error">
             {% if error %}
-            <div class="alert alert-danger" style="background-color: #fee2e2; border: 1px solid #ef4444; color: #b91c1c; padding: 0.75rem 1rem; border-radius: var(--radius); font-size: 0.9rem;">
-                {{ error }}
-            </div>
+            <div class="alert alert-danger">{{ error }}</div>
             {% endif %}
         </div>
 
@@ -34,7 +30,7 @@
                 <input type="password" id="password" name="password" class="form-input" placeholder="••••••••" required>
             </div>
 
-            <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem;">Entrar</button>
+            <button type="submit" class="btn btn-primary btn-block">Entrar</button>
         </form>
     </div>
 </div>

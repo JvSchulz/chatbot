@@ -1,21 +1,20 @@
-{% extends "index.html" %}
+{% extends "base.html" %}
+{% set active_page = "historico" %}
 
 {% block title %}Histórico de Conversas - Painel de Administração{% endblock %}
-{% block nav_menus %}{% endblock %}
-{% block nav_history %}active{% endblock %}
 
 {% block content %}
 <section class="page-header">
     <h2 class="page-title">Histórico de Mensagens</h2>
-    <p class="page-subtitle">Logs de interações dos usuários nos canais Telegram e WhatsApp.</p>
+    <p class="page-subtitle">Logs de interações dos usuários com o chatbot no WhatsApp.</p>
 </section>
 
+{% if history.rows %}
 <section class="table-container">
     <table class="table">
         <thead>
             <tr>
                 <th>ID</th>
-                <th>Canal</th>
                 <th>ID Usuário</th>
                 <th>Remetente</th>
                 <th>Conteúdo</th>
@@ -24,25 +23,32 @@
             </tr>
         </thead>
         <tbody>
+            {% for row in history.rows %}
             <tr>
-                <td>1</td>
-                <td>Telegram</td>
-                <td>987654321</td>
-                <td>Usuário</td>
-                <td>/start</td>
-                <td>1 (inicio)</td>
-                <td>2026-08-31 10:15:00</td>
+                <td>{{ row.id }}</td>
+                <td>{{ row.user_label }}</td>
+                <td>{{ row.role_label }}</td>
+                <td class="history-content">{{ row.content }}</td>
+                <td>{{ row.menu_name }}</td>
+                <td>{{ row.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</td>
             </tr>
-            <tr>
-                <td>2</td>
-                <td>Telegram</td>
-                <td>987654321</td>
-                <td>Bot</td>
-                <td>Olá! Bem-vindo ao atendimento...</td>
-                <td>1 (inicio)</td>
-                <td>2026-08-31 10:15:01</td>
-            </tr>
+            {% endfor %}
         </tbody>
     </table>
 </section>
+
+{% if history.has_previous or history.has_next %}
+<nav class="pagination" aria-label="Paginação do histórico">
+    {% if history.has_previous %}
+    <a class="btn btn-secondary" href="/historico?page={{ history.page - 1 }}">Anterior</a>
+    {% endif %}
+    <span class="pagination-status">Página {{ history.page }}</span>
+    {% if history.has_next %}
+    <a class="btn btn-secondary" href="/historico?page={{ history.page + 1 }}">Próxima</a>
+    {% endif %}
+</nav>
+{% endif %}
+{% else %}
+<div class="empty-state">Nenhuma mensagem registrada.</div>
+{% endif %}
 {% endblock %}

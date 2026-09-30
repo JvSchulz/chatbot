@@ -1,10 +1,9 @@
 from typing import Literal, Optional
-from sqlmodel import SQLModel, Field, Relationship
+from sqlmodel import Field, Relationship
 
 from src.models.timestamp_model import TimestampModel
 
 
-# 1. Base: Shared fields between forms, APIs, and DB
 class MenuBase(TimestampModel):
     name: str
     selection_name: str

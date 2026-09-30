@@ -3,8 +3,8 @@ Controlador de autenticação de administradores, ciclo de sessões e controle d
 """
 
 from datetime import datetime, timezone, timedelta
-from typing import Annotated, Optional
-from fastapi import APIRouter, Request, Form, HTTPException, status, Depends, Response
+from html import escape
+from fastapi import APIRouter, Request, Form, HTTPException, status, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlmodel import select
 from slowapi import Limiter
@@ -14,16 +14,18 @@ from src.core import config
 from src.core.db import SessionDep
 from src.core.security import (
     SESSION_COOKIE_NAME,
-    LEGACY_SESSION_COOKIE_NAME,
+    SECURE_SESSION_COOKIE_NAME,
     DUMMY_HASH,
-    hash_password,
     verify_password,
     generate_session_token,
-    generate_csrf_token,
     get_session_token_from_request,
+    session_cookie_name,
 )
 from src.models.user_model import User
 from src.models.session_model import AdminSession
+
+INVALID_CREDENTIALS_MESSAGE = "Usuário ou senha inválidos."
+RATE_LIMIT_MESSAGE = "Muitas tentativas de login. Aguarde um minuto e tente novamente."
 
 router = APIRouter(tags=["auth"])
 templates = config.templates
@@ -49,11 +51,6 @@ def get_current_admin(
     """
     session_id = get_session_token_from_request(request)
     if not session_id:
-        user_id_str = request.headers.get("X-User-Id")
-        if user_id_str and user_id_str.isdigit():
-            user = session.get(User, int(user_id_str))
-            if user:
-                return user
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Sessão não autenticada.",
@@ -66,11 +63,7 @@ def get_current_admin(
             detail="Sessão inválida.",
         )
 
-    expires_at = admin_session.expires_at
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-
-    if expires_at < datetime.now(timezone.utc):
+    if admin_session.expires_at < datetime.now(timezone.utc):
         session.delete(admin_session)
         session.commit()
         raise HTTPException(
@@ -130,19 +123,10 @@ def login_submit(
 
     if not user:
         verify_password(password, DUMMY_HASH)
-        return _build_auth_failure_response(request)
+        return build_login_error_response(request, INVALID_CREDENTIALS_MESSAGE, status.HTTP_401_UNAUTHORIZED)
 
-    stored_password = user.password or ""
-    is_valid = verify_password(password, stored_password)
-    if not is_valid and stored_password == password:
-        # Migração transparente caso a senha legada estivesse em texto puro
-        user.password = hash_password(password)
-        session.add(user)
-        session.commit()
-        is_valid = True
-
-    if not is_valid:
-        return _build_auth_failure_response(request)
+    if not verify_password(password, user.password or ""):
+        return build_login_error_response(request, INVALID_CREDENTIALS_MESSAGE, status.HTTP_401_UNAUTHORIZED)
 
     session_token = generate_session_token()
     client_ip = request.client.host if request.client else None
@@ -190,30 +174,47 @@ def logout_submit(
         response = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
 
     response.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
-    response.delete_cookie(key=LEGACY_SESSION_COOKIE_NAME, path="/")
+    response.delete_cookie(key=SECURE_SESSION_COOKIE_NAME, path="/", secure=True)
     return response
 
 
-def _build_auth_failure_response(request: Request) -> Response:
+def build_login_error_response(request: Request, message: str, status_code: int) -> Response:
     """
-    Constrói resposta genérica de falha na autenticação (HTTP 401).
+    Constrói a resposta de uma falha de login: fragmento HTML para HTMX ou a página de login.
 
     Args:
         request: Requisição HTTP originária.
+        message: Mensagem, em português, exibida ao administrador.
+        status_code: Status HTTP da falha (401 ou 429).
 
     Returns:
-        Resposta HTTP 401 amigável ao HTMX e a navegadores padrão.
+        Fragmento com o alerta quando a requisição vem do HTMX; página de login com a mensagem caso contrário.
     """
-    error_msg = "Usuário ou senha inválidos."
     if request.headers.get("HX-Request") == "true":
         return HTMLResponse(
-            content=f'<div class="alert alert-danger">{error_msg}</div>',
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            content=f'<div class="alert alert-danger">{escape(message)}</div>',
+            status_code=status_code,
         )
-    return HTMLResponse(
-        content=f"<html><body><p>{error_msg}</p><a href='/login'>Tentar novamente</a></body></html>",
-        status_code=status.HTTP_401_UNAUTHORIZED,
+    return templates.TemplateResponse(
+        request=request,
+        name="login.html",
+        context={"error": message},
+        status_code=status_code,
     )
+
+
+def login_rate_limit_handler(request: Request, exc: Exception) -> Response:
+    """
+    Responde ao bloqueio por excesso de tentativas de login com uma mensagem legível.
+
+    Args:
+        request: Requisição HTTP bloqueada.
+        exc: Exceção RateLimitExceeded levantada pelo limitador.
+
+    Returns:
+        Resposta 429 no formato adequado ao cliente (HTMX ou navegador).
+    """
+    return build_login_error_response(request, RATE_LIMIT_MESSAGE, status.HTTP_429_TOO_MANY_REQUESTS)
 
 
 def _build_auth_success_response(request: Request, session_token: str) -> Response:
@@ -235,7 +236,7 @@ def _build_auth_success_response(request: Request, session_token: str) -> Respon
 
     is_https = request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https"
     response.set_cookie(
-        key=SESSION_COOKIE_NAME,
+        key=session_cookie_name(is_https),
         value=session_token,
         httponly=True,
         secure=is_https,

@@ -6,7 +6,7 @@ from typing import Callable, Awaitable
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response, JSONResponse
-from src.core.security import SESSION_COOKIE_NAME, verify_csrf_token, get_session_token_from_request
+from src.core.security import verify_csrf_token, get_session_token_from_request
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -36,9 +36,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; "
-            "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
-            "connect-src 'self'; frame-ancestors 'none';"
+            "default-src 'self'; script-src 'self'; style-src 'self'; "
+            "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none';"
         )
 
         return response
@@ -50,7 +49,6 @@ class CSRFProtectionMiddleware(BaseHTTPMiddleware):
     """
 
     SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
-    EXEMPT_PATHS = ("/webhook", "/login", "/logout")
 
     async def dispatch(
         self,

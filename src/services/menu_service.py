@@ -1,8 +1,16 @@
 from typing import Sequence, Any
-from dataclasses import dataclass
-from sqlmodel import Session, select
-from src.core.db import engine
+from dataclasses import dataclass, replace
+from sqlmodel import Session, func, select
 from src.models.menu_model import Menu
+
+
+MENU_FIELDS_REQUIRED_MESSAGE = "Preencha nome, texto de seleção e mensagem."
+
+# Uma lista interativa do WhatsApp aceita no máximo 10 linhas; no menu raiz uma delas é
+# reservada para "Fazer uma pergunta".
+WHATSAPP_LIST_LIMIT = 10
+ROOT_CHILDREN_LIMIT = WHATSAPP_LIST_LIMIT - 1
+WHATSAPP_LIST_LIMIT_MESSAGE = f"O WhatsApp permite no máximo {WHATSAPP_LIST_LIMIT} opções por lista."
 
 
 @dataclass
@@ -15,44 +23,76 @@ class MenuData:
     is_root: bool = False
 
 
-def get_all_menus(session: Session | None = None) -> Sequence[Menu]:
+def _clean_menu_data(data: MenuData) -> MenuData:
+    """
+    Remove os espaços das pontas dos campos de texto do menu e exige que nenhum fique vazio.
+
+    Args:
+        data: Dados de menu recebidos do formulário.
+
+    Returns:
+        Cópia dos dados com nome, texto de seleção e mensagem sem espaços nas pontas.
+
+    Raises:
+        ValueError: Se algum dos três campos estiver vazio ou contiver apenas espaços.
+    """
+    cleaned = replace(
+        data,
+        name=data.name.strip(),
+        selection_name=data.selection_name.strip(),
+        message=data.message.strip(),
+    )
+    if not (cleaned.name and cleaned.selection_name and cleaned.message):
+        raise ValueError(MENU_FIELDS_REQUIRED_MESSAGE)
+    return cleaned
+
+
+def is_root_toggle_allowed(has_root: bool, is_current_root: bool) -> bool:
+    """
+    Indica se o checkbox de menu raiz pode ser alterado no formulário.
+
+    Args:
+        has_root: Se já existe um menu raiz cadastrado.
+        is_current_root: Se o menu exibido é a própria raiz (ou o rascunho da primeira raiz).
+
+    Returns:
+        True apenas quando não há raiz ou o menu exibido é a raiz.
+    """
+    return (not has_root) or is_current_root
+
+
+def get_all_menus(session: Session) -> Sequence[Menu]:
     """
     Retorna todos os menus ordenados alfabeticamente pelo nome.
 
     Args:
-        session: Sessão do banco de dados (opcional).
+        session: Sessão ativa do banco de dados.
 
     Returns:
         Sequência de todos os menus cadastrados.
     """
-    if session is not None:
-        return session.exec(select(Menu).order_by(Menu.name)).all()  # type: ignore
-    with Session(engine) as s:
-        return s.exec(select(Menu).order_by(Menu.name)).all()  # type: ignore
+    return session.exec(select(Menu).order_by(Menu.name)).all()  # type: ignore
 
 
-def get_root_menus(session: Session | None = None) -> Sequence[Menu]:
+def get_root_menus(session: Session) -> Sequence[Menu]:
     """
-    Retorna todos os menus de nível raiz (onde parent_id é nulo).
+    Retorna todos os menus de nível raiz (onde parent_id é nulo), do menor id para o maior.
 
     Args:
-        session: Sessão do banco de dados (opcional).
+        session: Sessão ativa do banco de dados.
 
     Returns:
         Sequência de instâncias de Menu raiz.
     """
-    if session is not None:
-        return session.exec(select(Menu).where(Menu.parent_id == None)).all()
-    with Session(engine) as s:
-        return s.exec(select(Menu).where(Menu.parent_id == None)).all()
+    return session.exec(select(Menu).where(Menu.parent_id == None).order_by(Menu.id)).all()  # type: ignore
 
 
-def get_root_menu(session: Session | None = None) -> Menu | None:
+def get_root_menu(session: Session) -> Menu | None:
     """
-    Retorna o único menu raiz ativo do sistema.
+    Retorna o único menu raiz ativo do sistema (o de menor id se houver mais de um sem pai).
 
     Args:
-        session: Sessão do banco de dados (opcional).
+        session: Sessão ativa do banco de dados.
 
     Returns:
         Instância de Menu raiz ou None se nenhum estiver configurado.
@@ -61,38 +101,48 @@ def get_root_menu(session: Session | None = None) -> Menu | None:
     return roots[0] if roots else None
 
 
-def get_submenus(parent_id: int, session: Session | None = None) -> Sequence[Menu]:
+def get_root_children(session: Session) -> Sequence[Menu]:
+    """
+    Retorna os filhos diretos do menu raiz, ou uma lista vazia se não houver raiz.
+
+    Args:
+        session: Sessão ativa do banco de dados.
+
+    Returns:
+        Sequência de menus cujo pai é o menu raiz.
+    """
+    root = get_root_menu(session)
+    if root is None or root.id is None:
+        return []
+    return get_submenus(session, root.id)
+
+
+def get_submenus(session: Session, parent_id: int) -> Sequence[Menu]:
     """
     Retorna todos os submenus vinculados a um determinado menu pai.
 
     Args:
+        session: Sessão ativa do banco de dados.
         parent_id: Identificador do menu pai.
-        session: Sessão do banco de dados (opcional).
 
     Returns:
         Sequência de submenus vinculados.
     """
-    if session is not None:
-        return session.exec(select(Menu).where(Menu.parent_id == parent_id)).all()
-    with Session(engine) as s:
-        return s.exec(select(Menu).where(Menu.parent_id == parent_id)).all()
+    return session.exec(select(Menu).where(Menu.parent_id == parent_id)).all()
 
 
-def get_menu_by_id(menu_id: int, session: Session | None = None) -> Menu | None:
+def get_menu_by_id(session: Session, menu_id: int) -> Menu | None:
     """
     Busca um registro de menu pelo seu identificador primário.
 
     Args:
+        session: Sessão ativa do banco de dados.
         menu_id: Identificador numérico do menu no banco de dados.
-        session: Sessão do banco de dados (opcional).
 
     Returns:
         Instância de Menu encontrada ou None caso não exista.
     """
-    if session is not None:
-        return session.get(Menu, menu_id)
-    with Session(engine) as s:
-        return s.get(Menu, menu_id)
+    return session.get(Menu, menu_id)
 
 
 def get_valid_parent_menus(
@@ -139,12 +189,12 @@ def build_menu_split_view_context(
     has_root = root_menu is not None
 
     if selected_id is not None:
-        selected_menu = get_menu_by_id(selected_id, session)
+        selected_menu = get_menu_by_id(session, selected_id)
     else:
         selected_menu = root_menu or (all_menus[0] if all_menus else None)
 
     is_current_root = selected_menu is not None and selected_menu.parent_id is None
-    can_toggle_root = (not has_root) or is_current_root
+    can_toggle_root = is_root_toggle_allowed(has_root, is_current_root)
     valid_parents = get_valid_parent_menus(session, selected_menu.id if selected_menu else None)
 
     return {
@@ -174,11 +224,34 @@ def can_delete_menu(session: Session, menu_id: int) -> bool:
     return len(submenus) == 0
 
 
-def create_menu(
-    session: Session,
-    data: MenuData | None = None,
-    **kwargs,
-) -> Menu:
+def _ensure_parent_has_room(session: Session, parent_id: int) -> None:
+    """
+    Garante que o menu pai comporta mais um filho dentro do limite de linhas de uma lista do WhatsApp.
+
+    Só é chamada para novos filhos e para menus movidos de outro pai, então o filho nunca já está contado.
+
+    Args:
+        session: Sessão ativa do banco de dados.
+        parent_id: Identificador do menu que receberá o filho.
+
+    Raises:
+        ValueError: Se o pai já tem o máximo de filhos (9 para a raiz, 10 para os demais).
+    """
+    parent = session.get(Menu, parent_id)
+    if parent is None:
+        return
+    limit = ROOT_CHILDREN_LIMIT if parent.parent_id is None else WHATSAPP_LIST_LIMIT
+    count_children = select(func.count()).select_from(Menu).where(Menu.parent_id == parent_id)
+    if session.exec(count_children).one() >= limit:
+        raise ValueError(WHATSAPP_LIST_LIMIT_MESSAGE)
+
+
+def _second_root_message(existing_root: Menu) -> str:
+    """Monta a mensagem de erro para a tentativa de definir uma segunda raiz."""
+    return f"Já existe um menu raiz definido ('{existing_root.name}'). Não é permitido ter mais de um menu raiz."
+
+
+def create_menu(session: Session, data: MenuData) -> Menu:
     """
     Persiste um novo nó de menu no banco de dados com validação de raiz única.
 
@@ -190,21 +263,15 @@ def create_menu(
         Instância do menu persistido com ID gerado.
 
     Raises:
-        ValueError: Caso se tente criar um segundo menu raiz ou um submenu sem pai ou sem raiz.
+        ValueError: Caso se tente criar um segundo menu raiz, um submenu sem pai ou sem raiz, ou um
+            filho além do limite de opções por lista do WhatsApp.
     """
-    menu_data = data or MenuData(
-        name=kwargs.get("name", "Novo Menu"),
-        selection_name=kwargs.get("selection_name", "Opção"),
-        message=kwargs.get("message", ""),
-        parent_id=kwargs.get("parent_id"),
-        is_root=kwargs.get("is_root", kwargs.get("parent_id") is None),
-    )
-
+    menu_data = _clean_menu_data(data)
     existing_root = get_root_menu(session)
 
     if menu_data.is_root:
         if existing_root is not None:
-            raise ValueError(f"Já existe um menu raiz definido ('{existing_root.name}'). Não é permitido ter mais de um menu raiz.")
+            raise ValueError(_second_root_message(existing_root))
         target_parent_id = None
     else:
         if existing_root is None:
@@ -212,6 +279,7 @@ def create_menu(
         if menu_data.parent_id is None:
             raise ValueError("Um submenu deve ter um menu pai selecionado.")
         target_parent_id = menu_data.parent_id
+        _ensure_parent_has_room(session, target_parent_id)
 
     new_menu = Menu(
         name=menu_data.name,
@@ -225,12 +293,7 @@ def create_menu(
     return new_menu
 
 
-def update_menu(
-    session: Session,
-    menu_id: int,
-    data: MenuData | None = None,
-    **kwargs,
-) -> Menu:
+def update_menu(session: Session, menu_id: int, data: MenuData) -> Menu:
     """
     Atualiza as propriedades de um menu existente com proteção contra ciclos e raiz única.
 
@@ -243,26 +306,19 @@ def update_menu(
         Instância do menu atualizado.
 
     Raises:
-        ValueError: Caso o menu não exista, tente violar raiz única ou gere ciclo hierárquico.
+        ValueError: Caso o menu não exista, tente violar raiz única, gere ciclo hierárquico ou seja movido
+            para um pai que já tem o máximo de opções por lista do WhatsApp.
     """
     menu = session.get(Menu, menu_id)
     if not menu:
         raise ValueError(f"Menu com ID {menu_id} não encontrado.")
 
-    is_root_inferred = kwargs.get("is_root", kwargs.get("parent_id") is None if "parent_id" in kwargs else menu.parent_id is None)
-    menu_data = data or MenuData(
-        name=kwargs.get("name", menu.name),
-        selection_name=kwargs.get("selection_name", menu.selection_name),
-        message=kwargs.get("message", menu.message),
-        parent_id=kwargs.get("parent_id", menu.parent_id),
-        is_root=is_root_inferred,
-    )
-
+    menu_data = _clean_menu_data(data)
     existing_root = get_root_menu(session)
 
     if menu_data.is_root:
         if existing_root is not None and existing_root.id != menu_id:
-            raise ValueError(f"Já existe outro menu definido como raiz ('{existing_root.name}'). Desmarque o atual antes de definir este como raiz.")
+            raise ValueError(_second_root_message(existing_root))
         target_parent_id = None
     else:
         if menu_data.parent_id is None and existing_root is not None and existing_root.id != menu_id:
@@ -274,6 +330,8 @@ def update_menu(
         invalid_parent_ids = _collect_descendant_ids(all_menus, menu_id)
         if target_parent_id in invalid_parent_ids:
             raise ValueError("Ciclo hierárquico detectado: um menu não pode ser filho de si mesmo ou de seus descendentes.")
+        if target_parent_id != menu.parent_id:
+            _ensure_parent_has_room(session, target_parent_id)
 
     menu.name = menu_data.name
     menu.selection_name = menu_data.selection_name

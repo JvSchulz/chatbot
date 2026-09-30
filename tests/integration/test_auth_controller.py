@@ -260,9 +260,9 @@ def test_get_current_admin_allows_valid_session(session: Session):
     assert response.json() == {"admin": "active_admin"}
 
 
-def test_post_login_migrates_legacy_plaintext_password(session: Session):
+def test_post_login_rejects_plaintext_stored_password(session: Session):
     """
-    POST /login com senha legada em texto puro deve autenticar e atualizar para Argon2id.
+    POST /login não deve autenticar nem migrar senha armazenada em texto puro.
     """
     user = User(login="legacy_user", password="plain_password_123", is_admin=True)
     session.add(user)
@@ -277,17 +277,16 @@ def test_post_login_migrates_legacy_plaintext_password(session: Session):
         data={"username": "legacy_user", "password": "plain_password_123"},
         headers={"HX-Request": "true"},
     )
-    assert response.status_code == 200
-    assert SESSION_COOKIE_NAME in response.cookies
 
-    # Confirma que a senha no banco foi convertida para Argon2id
+    assert response.status_code == 401
+    assert SESSION_COOKIE_NAME not in response.cookies
     session.refresh(user)
-    assert "$argon2id$" in user.password
+    assert user.password == "plain_password_123"
 
 
-def test_get_current_admin_via_x_user_id_header(session: Session):
+def test_get_current_admin_rejects_x_user_id_header(session: Session):
     """
-    Garante suporte ao cabeçalho X-User-Id em testes automatizados.
+    O cabeçalho X-User-Id não deve conceder acesso: a sessão por cookie é a única credencial.
     """
     user = User(login="header_admin", password=hash_password("123"), is_admin=True)
     session.add(user)
@@ -298,22 +297,47 @@ def test_get_current_admin_via_x_user_id_header(session: Session):
     client = TestClient(app)
 
     response = client.get("/admin-only", headers={"X-User-Id": str(user.id)})
-    assert response.status_code == 200
-    assert response.json() == {"admin": "header_admin"}
+    assert response.status_code == 401
+
+
+def test_users_route_redirects_x_user_id_header_to_login(session: Session):
+    """
+    Requisição a /usuarios apenas com X-User-Id deve ser tratada como não autenticada.
+    """
+    from main import app
+
+    user = User(login="header_admin", password=hash_password("123"), is_admin=True)
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    client = TestClient(app, follow_redirects=False)
+
+    response = client.get("/usuarios", headers={"X-User-Id": str(user.id)})
+    assert response.status_code == 303
+    assert response.headers.get("Location") == "/login"
 
 
 def test_get_current_admin_user_not_found(session: Session):
     """
     Garante que sessão órfã cujo usuário não existe mais resulte em 401.
     """
-    token = generate_session_token()
-    admin_session = AdminSession(
-        id=token,
-        user_id=99999,
-        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
-    )
-    session.add(admin_session)
+    ghost = User(login="ghost_admin", password=hash_password("123"), is_admin=True)
+    session.add(ghost)
     session.commit()
+    token = generate_session_token()
+    session.add(
+        AdminSession(
+            id=token,
+            user_id=ghost.id,  # type: ignore
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+    )
+    session.commit()
+    session.connection().exec_driver_sql("PRAGMA foreign_keys=OFF")
+    session.delete(ghost)
+    session.commit()
+    session.connection().exec_driver_sql("PRAGMA foreign_keys=ON")
 
     app = create_auth_test_app()
     client = TestClient(app)
@@ -413,3 +437,140 @@ def test_unauthenticated_api_request_with_accept_json_returns_401():
     response = client.get("/menus", headers={"Accept": "application/json"})
     assert response.status_code == 401
     assert response.headers.get("content-type", "").startswith("application/json")
+
+
+def _create_login_user(session: Session) -> None:
+    """Cria o administrador usado nos testes de nome de cookie por esquema."""
+    session.add(User(login="cookie_admin", password=hash_password("SegredoForte123"), is_admin=True))
+    session.commit()
+
+
+def _login(client: TestClient, headers: dict[str, str] | None = None):
+    """Executa POST /login com as credenciais do administrador de testes."""
+    return client.post(
+        "/login",
+        data={"username": "cookie_admin", "password": "SegredoForte123"},
+        headers=headers,
+    )
+
+
+def _set_cookie_headers(response) -> list[str]:
+    """Lista os valores dos cabeçalhos Set-Cookie da resposta."""
+    return response.headers.get_list("set-cookie")
+
+
+def test_login_over_https_sets_host_prefixed_secure_cookie(session: Session):
+    """
+    Login sobre HTTPS deve definir __Host-session com HttpOnly, Secure, SameSite=Lax e Path=/.
+    """
+    _create_login_user(session)
+    client = TestClient(create_auth_test_app(), base_url="https://testserver", follow_redirects=False)
+
+    cookies = _set_cookie_headers(_login(client))
+
+    assert len(cookies) == 1
+    assert cookies[0].startswith("__Host-session=")
+    assert "HttpOnly" in cookies[0]
+    assert "Secure" in cookies[0]
+    assert "SameSite=lax" in cookies[0]
+    assert "Path=/" in cookies[0]
+
+
+def test_login_behind_https_proxy_sets_host_prefixed_secure_cookie(session: Session):
+    """
+    Login com X-Forwarded-Proto: https deve se comportar como HTTPS.
+    """
+    _create_login_user(session)
+    client = TestClient(create_auth_test_app(), follow_redirects=False)
+
+    cookies = _set_cookie_headers(_login(client, {"X-Forwarded-Proto": "https"}))
+
+    assert cookies[0].startswith("__Host-session=")
+    assert "Secure" in cookies[0]
+
+
+def test_login_over_http_sets_plain_session_cookie_without_secure(session: Session):
+    """
+    Login sobre HTTP deve definir o cookie session com HttpOnly e SameSite=Lax, sem Secure.
+    """
+    _create_login_user(session)
+    client = TestClient(create_auth_test_app(), base_url="http://testserver", follow_redirects=False)
+
+    cookies = _set_cookie_headers(_login(client))
+
+    assert len(cookies) == 1
+    assert cookies[0].startswith("session=")
+    assert "HttpOnly" in cookies[0]
+    assert "SameSite=lax" in cookies[0]
+    assert "Secure" not in cookies[0]
+
+
+def test_logout_clears_both_cookie_names(session: Session):
+    """
+    Logout deve limpar session e __Host-session, este último com Secure para o navegador aceitar.
+    """
+    client = TestClient(create_auth_test_app(), follow_redirects=False)
+
+    cookies = _set_cookie_headers(client.post("/logout"))
+
+    plain = [c for c in cookies if c.startswith("session=")]
+    host = [c for c in cookies if c.startswith("__Host-session=")]
+    assert len(plain) == 1
+    assert len(host) == 1
+    assert "Max-Age=0" in plain[0]
+    assert "Max-Age=0" in host[0]
+    assert "Secure" in host[0]
+    assert "Path=/" in host[0]
+
+
+def test_get_current_admin_accepts_host_prefixed_cookie(session: Session):
+    """
+    A leitura da sessão deve aceitar o cookie __Host-session emitido sobre HTTPS.
+    """
+    user = User(login="host_admin", password=hash_password("123"), is_admin=True)
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    token = generate_session_token()
+    session.add(
+        AdminSession(
+            id=token,
+            user_id=user.id,  # type: ignore
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+    )
+    session.commit()
+
+    client = TestClient(create_auth_test_app(), base_url="https://testserver")
+    client.cookies.set("__Host-session", token)
+
+    response = client.get("/admin-only")
+    assert response.status_code == 200
+    assert response.json() == {"admin": "host_admin"}
+
+
+def test_get_current_admin_prefers_host_prefixed_cookie_over_stale_plain_cookie(session: Session):
+    """
+    Um cookie session remanescente não deve ofuscar o __Host-session recém-emitido sobre HTTPS.
+    """
+    user = User(login="stale_admin", password=hash_password("123"), is_admin=True)
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    token = generate_session_token()
+    session.add(
+        AdminSession(
+            id=token,
+            user_id=user.id,  # type: ignore
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+    )
+    session.commit()
+
+    client = TestClient(create_auth_test_app(), base_url="https://testserver")
+    client.cookies.set("session", "token-antigo-invalido")
+    client.cookies.set("__Host-session", token)
+
+    response = client.get("/admin-only")
+    assert response.status_code == 200
+    assert response.json() == {"admin": "stale_admin"}

@@ -6,6 +6,7 @@ import pytest
 from sqlmodel import Session
 from src.models.menu_model import Menu
 from src.services.menu_service import (
+    MenuData,
     get_all_menus,
     get_root_menu,
     get_valid_parent_menus,
@@ -117,11 +118,8 @@ def test_create_menu_as_root(session: Session):
     create_menu com is_root=True deve persistir menu com parent_id nulo.
     """
     created = create_menu(
-        session=session,
-        name="Novo Menu",
-        selection_name="Opção 1",
-        message="Mensagem de teste",
-        is_root=True,
+        session,
+        MenuData(name="Novo Menu", selection_name="Opção 1", message="Mensagem de teste", is_root=True),
     )
     assert created.id is not None
     assert created.parent_id is None
@@ -132,10 +130,10 @@ def test_create_second_root_menu_raises_value_error(session: Session):
     """
     create_menu com is_root=True quando já existe raiz deve falhar.
     """
-    create_menu(session=session, name="Raiz 1", selection_name="R1", message="M1", is_root=True)
+    create_menu(session, MenuData(name="Raiz 1", selection_name="R1", message="M1", is_root=True))
 
     with pytest.raises(ValueError, match="Já existe um menu raiz definido"):
-        create_menu(session=session, name="Raiz 2", selection_name="R2", message="M2", is_root=True)
+        create_menu(session, MenuData(name="Raiz 2", selection_name="R2", message="M2", is_root=True))
 
 
 def test_create_child_menu_without_root_raises_value_error(session: Session):
@@ -143,22 +141,19 @@ def test_create_child_menu_without_root_raises_value_error(session: Session):
     create_menu com is_root=False em banco vazio deve falhar.
     """
     with pytest.raises(ValueError, match="Nenhum menu raiz está configurado"):
-        create_menu(session=session, name="Sub", selection_name="S", message="M", is_root=False, parent_id=1)
+        create_menu(session, MenuData(name="Sub", selection_name="S", message="M", is_root=False, parent_id=1))
 
 
 def test_update_menu_modifies_fields(session: Session):
     """
     update_menu deve alterar os campos permitidos e persistir alterações.
     """
-    root = create_menu(session=session, name="Antigo", selection_name="Old", message="Old msg", is_root=True)
+    root = create_menu(session, MenuData(name="Antigo", selection_name="Old", message="Old msg", is_root=True))
 
     updated = update_menu(
-        session=session,
-        menu_id=root.id,  # type: ignore
-        name="Atualizado",
-        selection_name="New",
-        message="New msg",
-        is_root=True,
+        session,
+        root.id,  # type: ignore
+        MenuData(name="Atualizado", selection_name="New", message="New msg", is_root=True),
     )
     assert updated.name == "Atualizado"
     assert updated.message == "New msg"
@@ -168,18 +163,14 @@ def test_update_menu_raises_value_error_on_cycle(session: Session):
     """
     update_menu deve lançar ValueError se o parent_id for o próprio menu ou um descendente.
     """
-    root = create_menu(session=session, name="Raiz", selection_name="R", message="R", is_root=True)
-    child = create_menu(session=session, name="Filho", selection_name="F", message="F", is_root=False, parent_id=root.id)
+    root = create_menu(session, MenuData(name="Raiz", selection_name="R", message="R", is_root=True))
+    child = create_menu(session, MenuData(name="Filho", selection_name="F", message="F", is_root=False, parent_id=root.id))
 
     with pytest.raises(ValueError, match="Ciclo hierárquico detectado"):
         update_menu(
-            session=session,
-            menu_id=root.id,  # type: ignore
-            name="Raiz",
-            selection_name="R",
-            message="R",
-            parent_id=child.id,
-            is_root=False,
+            session,
+            root.id,  # type: ignore
+            MenuData(name="Raiz", selection_name="R", message="R", parent_id=child.id, is_root=False),
         )
 
 
@@ -187,7 +178,7 @@ def test_delete_menu_deletes_when_safe(session: Session):
     """
     delete_menu deve excluir com sucesso caso não tenha submenus.
     """
-    menu = create_menu(session=session, name="Folha", selection_name="F", message="F", is_root=True)
+    menu = create_menu(session, MenuData(name="Folha", selection_name="F", message="F", is_root=True))
 
     assert delete_menu(session, menu.id) is True  # type: ignore
     assert session.get(Menu, menu.id) is None
@@ -197,8 +188,8 @@ def test_delete_menu_raises_value_error_when_has_submenus(session: Session):
     """
     delete_menu deve lançar ValueError ao tentar remover menu com filhos.
     """
-    root = create_menu(session=session, name="Pai", selection_name="P", message="P", is_root=True)
-    create_menu(session=session, name="Filho", selection_name="F", message="F", is_root=False, parent_id=root.id)
+    root = create_menu(session, MenuData(name="Pai", selection_name="P", message="P", is_root=True))
+    create_menu(session, MenuData(name="Filho", selection_name="F", message="F", is_root=False, parent_id=root.id))
 
     with pytest.raises(ValueError, match="possui submenus vinculados"):
         delete_menu(session, root.id)  # type: ignore

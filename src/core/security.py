@@ -2,24 +2,37 @@
 Utilitários de segurança, criptografia Argon2id, tokens de sessão e proteção CSRF.
 """
 
-import os
 import hmac
 import hashlib
 import secrets
 from pwdlib import PasswordHash
 from pwdlib.hashers.argon2 import Argon2Hasher
+from src.core.config import settings
 
-SECRET_KEY = os.getenv("SECRET_KEY", "chatbot_super_secret_key_production_vault")
+SECRET_KEY = settings.secret_key.get_secret_value()
 SESSION_COOKIE_NAME = "session"
-LEGACY_SESSION_COOKIE_NAME = "__Host-session"
+SECURE_SESSION_COOKIE_NAME = "__Host-session"
 DUMMY_HASH = "$argon2id$v=19$m=65536,t=3,p=4$cRbAtTw3BHnG+HktOVbxHg$OUm6fvlyOXHRn/yrYrlqFJmYZJqQk9FisS7R/7WTILc"
 
 _password_hasher = PasswordHash((Argon2Hasher(),))
 
 
+def session_cookie_name(is_https: bool) -> str:
+    """
+    Escolhe o nome do cookie de sessão conforme o esquema da conexão.
+
+    Args:
+        is_https: True quando a requisição chegou por HTTPS, direta ou via proxy.
+
+    Returns:
+        __Host-session sobre HTTPS e session sobre HTTP simples, onde o navegador recusaria Secure.
+    """
+    return SECURE_SESSION_COOKIE_NAME if is_https else SESSION_COOKIE_NAME
+
+
 def get_session_token_from_request(request) -> str | None:
-    """Extrai o token de sessão do cookie atual ou legado da requisição."""
-    return request.cookies.get(SESSION_COOKIE_NAME) or request.cookies.get(LEGACY_SESSION_COOKIE_NAME)
+    """Extrai o token de sessão da requisição, priorizando o cookie __Host-session sobre o session."""
+    return request.cookies.get(SECURE_SESSION_COOKIE_NAME) or request.cookies.get(SESSION_COOKIE_NAME)
 
 
 def hash_password(password: str) -> str:

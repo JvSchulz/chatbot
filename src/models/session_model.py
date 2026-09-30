@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from typing import Optional, Literal
 from sqlmodel import SQLModel, Field
 
+from src.models.types import UTCDateTime
+
 
 class AdminSession(SQLModel, table=True):
     """
@@ -22,10 +24,12 @@ class AdminSession(SQLModel, table=True):
     )
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
+        sa_type=UTCDateTime,
         description="Data e hora de criação da sessão em UTC",
     )
     expires_at: datetime = Field(
         index=True,
+        sa_type=UTCDateTime,
         description="Data e hora limite de expiração da sessão em UTC",
     )
     ip_address: Optional[str] = Field(

@@ -75,9 +75,8 @@ def test_security_headers_middleware_adds_expected_headers():
     assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
     assert response.headers["Strict-Transport-Security"] == "max-age=31536000; includeSubDomains"
     assert response.headers["Content-Security-Policy"] == (
-        "default-src 'self'; script-src 'self' 'unsafe-inline'; "
-        "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
-        "connect-src 'self'; frame-ancestors 'none';"
+        "default-src 'self'; script-src 'self'; style-src 'self'; "
+        "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none';"
     )
 
 

@@ -1,0 +1,12 @@
+# Chave que assina os tokens CSRF das sessões administrativas; use uma sequência longa e aleatória.
+SECRET_KEY=troque-por-uma-sequencia-longa-e-aleatoria
+# Token de verificação do webhook; deve ser idêntico ao configurado no painel da Meta.
+WA_VERIFY_TOKEN=troque-pelo-token-de-verificacao-da-meta
+# Segredo do aplicativo Meta, usado para validar a assinatura X-Hub-Signature-256 do webhook.
+APP_SECRET=troque-pelo-segredo-do-aplicativo-meta
+# Token de acesso permanente da API WhatsApp Cloud usado para enviar mensagens.
+WA_TOKEN=troque-pelo-token-de-acesso-da-api
+# Identificador do número de telefone da API WhatsApp Cloud (Phone Number ID).
+WA_PHONE_ID=troque-pelo-identificador-do-numero
+# Senha do primeiro administrador 'admin' (mínimo de 12 caracteres); lida apenas com o banco vazio.
+ADMIN_INITIAL_PASSWORD=troque-por-uma-senha-inicial-forte

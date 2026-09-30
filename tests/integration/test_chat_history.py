@@ -1,84 +1,95 @@
 """
-Testes de integração para histórico de mensagens e detecção de primeira interação.
+Testes de integração para o registro do histórico de mensagens na transação do evento.
 """
 
-from unittest.mock import MagicMock
-from sqlmodel import Session, select
-from pywa.types import Message
-from pywa.types.base_update import User
+from datetime import datetime, timedelta, timezone
+from sqlmodel import Session, col, select
 from src.models.chat_history_model import ChatHistory
-from src.services.webhook.chat_history_log import (
-    is_first_interaction,
-    save_message_log,
-    save_bot_reply_log,
-)
+from src.models.menu_model import Menu
+from src.services.webhook.chat_history_log import save_bot_reply_log, save_user_log
+from src.services.webhook.message_handler import MessageContext
 
 
-def test_is_first_interaction_on_empty_and_populated_database(session: Session):
-    """
-    is_first_interaction deve retornar True em banco vazio e False após haver registros do remetente.
-    """
-    wa_id = "5547998765432"
-
-    # 1. Banco vazio para este remetente
-    assert is_first_interaction(wa_id) is True
-
-    # 2. Insere registro de mensagem
-    msg = MagicMock(spec=Message)
-    user = MagicMock(spec=User)
-    user.wa_id = wa_id
-    user.name = "Teste"
-    msg.from_user = user
-    msg.text = "Primeiro contato"
-
-    save_message_log(msg=msg)
-
-    # 3. Agora não é mais primeira interação
-    assert is_first_interaction(wa_id) is False
-
-
-def test_save_message_log_persists_inbound_user_role(session: Session):
-    """
-    save_message_log deve persistir mensagem do usuário com role='user'.
-    """
-    msg = MagicMock(spec=Message)
-    user = MagicMock(spec=User)
-    user.wa_id = "554711112222"
-    user.name = "Roberto"
-    msg.from_user = user
-    msg.text = "Quero saber sobre pós"
-
-    save_message_log(msg=msg, accessed_menu_id=2)
-
-    statement = select(ChatHistory).where(ChatHistory.sender_id == "554711112222")
-    record = session.exec(statement).first()
-
-    assert record is not None
-    assert record.sender_id == "554711112222"
-    assert record.content == "Quero saber sobre pós"
-    assert record.acessed_menu == 2
-    assert record.role == "user"
-    assert record.datetime is not None
-
-
-def test_save_bot_reply_log_persists_bot_role(session: Session):
-    """
-    save_bot_reply_log deve persistir resposta do sistema com role='bot'.
-    """
-    save_bot_reply_log(
-        recipient_id="554711112222",
-        content="Aqui estão as opções de pós-graduação:",
-        accessed_menu_id=2,
+def _context(
+    session: Session,
+    user_id: str = "BR.1000000000001",
+    wa_id: str | None = "5511999998888",
+    text: str = "Olá, gostaria de informações",
+) -> MessageContext:
+    return MessageContext(
+        session=session,
+        user_id=user_id,
+        wa_id=wa_id,
+        reply_to=wa_id or user_id,
+        user_name="Roberto",
+        message_text=text,
     )
 
-    statement = select(ChatHistory).where(
-        ChatHistory.sender_id == "554711112222",
-        ChatHistory.role == "bot",
-    )
-    record = session.exec(statement).first()
 
-    assert record is not None
-    assert record.sender_id == "554711112222"
-    assert record.content == "Aqui estão as opções de pós-graduação:"
-    assert record.role == "bot"
-    assert record.acessed_menu == 2
+def _add_menu(session: Session) -> int:
+    menu = Menu(name="Cursos", selection_name="Cursos", message="m")
+    session.add(menu)
+    session.commit()
+    assert menu.id is not None
+    return menu.id
+
+
+def test_save_user_log_persists_inbound_row(session: Session):
+    before = datetime.now(timezone.utc)
+
+    save_user_log(_context(session))
+
+    row = session.exec(select(ChatHistory)).one()
+    assert (row.user_id, row.wa_id, row.role) == ("BR.1000000000001", "5511999998888", "user")
+    assert row.content == "Olá, gostaria de informações"
+    assert row.menu_id is None
+    assert before - timedelta(seconds=1) <= row.created_at <= datetime.now(timezone.utc)
+
+
+def test_save_user_log_without_wa_id_stores_null(session: Session):
+    save_user_log(_context(session, wa_id=None))
+
+    assert session.exec(select(ChatHistory)).one().wa_id is None
+
+
+def test_save_user_log_records_the_selected_menu(session: Session):
+    menu_id = _add_menu(session)
+
+    save_user_log(_context(session, text="Cursos"), menu_id=menu_id)
+
+    row = session.exec(select(ChatHistory)).one()
+    assert (row.role, row.content, row.menu_id) == ("user", "Cursos", menu_id)
+
+
+def test_save_bot_reply_log_persists_bot_row(session: Session):
+    menu_id = _add_menu(session)
+
+    save_bot_reply_log(_context(session), "Aqui estão as opções de pós-graduação:", menu_id=menu_id)
+
+    row = session.exec(select(ChatHistory)).one()
+    assert (row.user_id, row.role, row.menu_id) == ("BR.1000000000001", "bot", menu_id)
+    assert row.content == "Aqui estão as opções de pós-graduação:"
+
+
+def test_save_bot_reply_log_defaults_to_no_menu(session: Session):
+    save_bot_reply_log(_context(session), "Oi")
+
+    assert session.exec(select(ChatHistory)).one().menu_id is None
+
+
+def test_log_functions_do_not_commit_the_transaction(session: Session):
+    save_user_log(_context(session))
+    save_bot_reply_log(_context(session), "Oi")
+
+    session.rollback()
+
+    assert session.exec(select(ChatHistory)).all() == []
+
+
+def test_log_rows_are_committed_with_the_caller_transaction(session: Session):
+    save_user_log(_context(session))
+    save_bot_reply_log(_context(session), "Oi")
+
+    session.commit()
+
+    assert [row.role for row in session.exec(select(ChatHistory).order_by(col(ChatHistory.id))).all()] == ["user", "bot"]

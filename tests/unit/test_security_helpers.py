@@ -9,6 +9,9 @@ from src.core.security import (
     generate_csrf_token,
     verify_csrf_token,
     DUMMY_HASH,
+    SESSION_COOKIE_NAME,
+    SECURE_SESSION_COOKIE_NAME,
+    session_cookie_name,
 )
 
 
@@ -93,3 +96,26 @@ def test_csrf_token_generation_and_validation():
     # Valida que sessão vazia com hash esperado ainda é rejeitada
     empty_session_token = generate_csrf_token("")
     assert verify_csrf_token(empty_session_token, "") is False
+
+
+def test_session_cookie_name_is_host_prefixed_over_https():
+    """
+    Sobre HTTPS o cookie de sessão deve usar o prefixo __Host-.
+    """
+    assert SECURE_SESSION_COOKIE_NAME == "__Host-session"
+    assert session_cookie_name(True) == "__Host-session"
+
+
+def test_session_cookie_name_is_plain_over_http():
+    """
+    Sobre HTTP simples (desenvolvimento local) o cookie de sessão deve se chamar apenas session.
+    """
+    assert SESSION_COOKIE_NAME == "session"
+    assert session_cookie_name(False) == "session"
+
+
+def test_generate_session_token_has_256_bits_of_entropy():
+    """
+    O token de sessão deve ter 32 bytes aleatórios, o que resulta em 43 caracteres URL-safe.
+    """
+    assert len(generate_session_token()) == 43

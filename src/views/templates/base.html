@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Painel de Administração{% endblock %}</title>
+    <meta name="htmx-config" content='{"allowScriptTags": false, "allowEval": false, "selfRequestsOnly": true, "includeIndicatorStyles": false}'>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/htmx.min.js"></script>
+    <script src="/static/app.js"></script>
+</head>
+
+<body {% if csrf_token %}hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'{% endif %}>
+    {% block header %}
+    <header class="header">
+        <div class="header-brand">
+            <img src="/static/img/logo.svg" width="65" height="65" alt="UDESC">
+            <h1>Painel de Administração</h1>
+        </div>
+
+        <nav class="nav-links">
+            <a href="/menus" class="nav-item{% if active_page == 'menus' %} active{% endif %}">Menus</a>
+            {% if current_user and current_user.is_admin %}
+            <a href="/usuarios" class="nav-item{% if active_page == 'usuarios' %} active{% endif %}">Usuários</a>
+            {% endif %}
+            <a href="/historico" class="nav-item{% if active_page == 'historico' %} active{% endif %}">Histórico</a>
+            {% if current_user %}
+            <div class="nav-user">
+                <span class="nav-user-name">{{ current_user.login }}</span>
+                <button type="button"
+                        hx-post="/logout"
+                        hx-target="body"
+                        hx-swap="outerHTML"
+                        class="btn btn-secondary btn-logout">
+                    Sair
+                </button>
+            </div>
+            {% endif %}
+        </nav>
+    </header>
+    {% endblock %}
+
+    <main class="main-container">
+        <div id="page-alert" class="alert alert-danger page-alert" role="alert" hidden></div>
+        {% block content %}{% endblock %}
+    </main>
+
+    {% block footer %}
+    <footer class="footer">
+        Todos os direitos reservados UDESC &copy; 2026
+    </footer>
+    {% endblock %}
+</body>
+
+</html>

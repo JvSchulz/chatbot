@@ -1,5 +1,5 @@
-from sqlmodel import SQLModel, Field, Relationship
-from typing import Literal, Optional
+from sqlmodel import Field
+from typing import Literal
 
 from src.models.timestamp_model import TimestampModel
 
