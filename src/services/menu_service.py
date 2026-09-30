@@ -193,7 +193,8 @@ def build_menu_split_view_context(
     else:
         selected_menu = root_menu or (all_menus[0] if all_menus else None)
 
-    is_current_root = selected_menu is not None and selected_menu.parent_id is None
+    # Sem menus, o card é o rascunho do primeiro menu, que obrigatoriamente será a raiz.
+    is_current_root = selected_menu.parent_id is None if selected_menu else not has_root
     can_toggle_root = is_root_toggle_allowed(has_root, is_current_root)
     valid_parents = get_valid_parent_menus(session, selected_menu.id if selected_menu else None)
 

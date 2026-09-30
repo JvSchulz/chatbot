@@ -64,6 +64,65 @@ def test_get_menus_shows_warning_when_no_root(session: Session):
     assert "Atenção: Nenhum menu está definido como Raiz" in response.text
 
 
+ROOT_WARNING = "Atenção: Nenhum menu está definido como Raiz"
+
+
+def test_root_warning_reloads_whenever_the_menu_list_changes(session: Session):
+    client = make_client(session)
+
+    page = client.get("/menus").text
+
+    container = re.search(r'<div id="root-warning"[^>]*>', page)
+    assert container is not None
+    assert 'hx-get="/menus/aviso-raiz"' in container.group(0)
+    assert 'hx-trigger="menuListChanged from:body"' in container.group(0)
+
+
+def test_first_menu_form_on_an_empty_database_is_already_marked_as_root(session: Session):
+    client = make_client(session)
+
+    page = client.get("/menus").text
+
+    checkbox = re.search(r'<input type="checkbox"[^>]*id="is_root"[^>]*>', page, re.S)
+    assert checkbox is not None
+    assert "checked" in checkbox.group(0)
+    assert "disabled" not in checkbox.group(0)
+
+
+def test_root_warning_container_is_present_when_a_root_exists(session: Session):
+    session.add(Menu(name="Raiz", selection_name="Raiz", message="Olá", parent_id=None))
+    session.commit()
+    client = make_client(session)
+
+    page = client.get("/menus").text
+
+    assert 'id="root-warning"' in page
+    assert ROOT_WARNING not in page
+
+
+def test_root_warning_fragment_disappears_after_saving_a_root(session: Session):
+    client = make_client(session)
+    assert ROOT_WARNING in client.get("/menus/aviso-raiz").text
+
+    saved = client.post(
+        "/menus", data={"name": "Raiz", "selection_name": "Raiz", "message": "Olá", "is_root": "on"}
+    )
+
+    assert saved.headers["HX-Trigger"] == "menuListChanged"
+    assert ROOT_WARNING not in client.get("/menus/aviso-raiz").text
+
+
+def test_root_warning_fragment_returns_after_deleting_the_root(session: Session):
+    root = Menu(name="Raiz", selection_name="Raiz", message="Olá", parent_id=None)
+    session.add(root)
+    session.commit()
+    client = make_client(session)
+
+    client.delete(f"/menus/{root.id}")
+
+    assert ROOT_WARNING in client.get("/menus/aviso-raiz").text
+
+
 def test_get_menu_list_partial(session: Session):
     """
     GET /menus/lista deve retornar o fragmento HTML com itens da lista.

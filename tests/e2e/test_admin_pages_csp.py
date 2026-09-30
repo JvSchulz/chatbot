@@ -28,6 +28,7 @@ SCRIPT_URL = re.compile(r"""\shref\s*=\s*["']\s*javascript:""", re.IGNORECASE)
 PAGES = ["/menus", "/usuarios", "/historico"]
 FRAGMENTS = [
     "/menus/lista",
+    "/menus/aviso-raiz",
     "/menus/novo/card",
     "/menus/{root_id}/card",
     "/menus/{child_id}/card",

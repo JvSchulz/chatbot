@@ -85,6 +85,25 @@ def menu_list_partial(request: Request, session: SessionDep, selected_id: int | 
     )
 
 
+@router.get("/aviso-raiz", response_class=HTMLResponse)
+def root_warning_partial(request: Request, session: SessionDep):
+    """
+    Retorna o aviso de ausência de menu raiz, recarregado a cada alteração na lista de menus.
+
+    Args:
+        request: Objeto da requisição HTTP.
+        session: Sessão ativa do banco de dados.
+
+    Returns:
+        Fragmento HTML com o aviso, vazio quando já existe uma raiz.
+    """
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/_root_warning.html",
+        context={"has_root": get_root_menu(session) is not None},
+    )
+
+
 def _card_context(session: Session, menu: Menu | None, is_current_root: bool | None = None) -> dict[str, Any]:
     """
     Monta o contexto do card de menu: raiz atual, flags do checkbox de raiz e pais válidos.

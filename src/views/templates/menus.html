@@ -9,12 +9,9 @@
     <p class="page-subtitle">Selecione um menu na coluna esquerda para editar ou cadastre uma nova opção.</p>
 </section>
 
-{% if not has_root %}
-<div class="alert alert-danger alert-prominent">
-    Atenção: Nenhum menu está definido como Raiz. Marque a opção "Definir como Menu Raiz" em um menu para
-    desbloquear a navegação do chatbot.
+<div id="root-warning" hx-get="/menus/aviso-raiz" hx-trigger="menuListChanged from:body">
+    {% include "partials/_root_warning.html" %}
 </div>
-{% endif %}
 
 <section class="split-layout">
     <div class="split-sidebar">

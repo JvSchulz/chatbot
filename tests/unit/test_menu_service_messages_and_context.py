@@ -158,7 +158,7 @@ def test_split_view_context_without_a_root_shows_the_first_menu_by_name(session:
     assert (context["is_current_root"], context["can_toggle_root"]) == (False, True)
 
 
-def test_split_view_context_with_no_menus_is_empty(session: Session):
+def test_split_view_context_with_no_menus_drafts_the_first_root(session: Session):
     context = build_menu_split_view_context(session)
 
     assert context == {
@@ -166,7 +166,7 @@ def test_split_view_context_with_no_menus_is_empty(session: Session):
         "selected_menu": None,
         "root_menu": None,
         "has_root": False,
-        "is_current_root": False,
+        "is_current_root": True,
         "can_toggle_root": True,
         "valid_parents": [],
     }
