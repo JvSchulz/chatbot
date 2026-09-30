@@ -10,13 +10,15 @@ class Settings(BaseSettings):
     """
     Configuração de execução lida do ambiente ou do arquivo .env, sem valores padrão para segredos.
 
-    Uma variável obrigatória ausente ou em branco impede a inicialização e o erro lista todas elas.
+    Uma variável obrigatória ausente ou em branco impede a inicialização e o erro lista todas elas,
+    sem repetir os valores lidos, para que nenhum segredo apareça no terminal ou nos logs.
     """
 
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",
         extra="ignore",
         alias_generator=str.upper,
+        hide_input_in_errors=True,
     )
 
     secret_key: SecretStr

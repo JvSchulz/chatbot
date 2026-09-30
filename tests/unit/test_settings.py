@@ -99,6 +99,16 @@ def test_secret_values_are_not_exposed_in_repr(valid_env):
     assert "valor-app_secret" not in repr(loaded)
 
 
+def test_startup_error_does_not_echo_the_secrets_that_were_read(valid_env):
+    valid_env.delenv("SECRET_KEY")
+
+    with pytest.raises(ValidationError) as error:
+        Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+    assert "valor-" not in str(error.value)
+    assert "input_value" not in str(error.value)
+
+
 EXAMPLE_ENV = Path(__file__).resolve().parents[2] / "example_env"
 CONFIG_SOURCE = Path(__file__).resolve().parents[2] / "src" / "core" / "config.py"
 
