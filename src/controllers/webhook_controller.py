@@ -3,6 +3,8 @@ from pywa.client import WhatsApp
 from pywa.types.message import Message
 from pywa.types.message_status import MessageStatus
 from pywa.types.callback import CallbackButton, CallbackSelection
+from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import Message as ASGIMessage
 from src.core.db import open_event_session
 from src.services.webhook.message_handler import (
     handle_message,
@@ -12,6 +14,34 @@ from src.services.webhook.message_handler import (
 )
 
 logger = logging.getLogger("Chatbot")
+
+
+WEBHOOK_PATH = "/webhook"
+
+
+class WebhookLogMiddleware:
+    """
+    Registra o corpo bruto e a assinatura de cada POST no webhook antes da PyWa, inclusive os que ela rejeita.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope["method"] != "POST" or scope["path"] != WEBHOOK_PATH:
+            await self.app(scope, receive, send)
+            return
+        received = [await receive()]
+        while received[-1].get("more_body"):
+            received.append(await receive())
+        body = b"".join(message.get("body", b"") for message in received)
+        signature = dict(scope["headers"]).get(b"x-hub-signature-256", b"").decode("latin-1")
+        logger.info(f"[WEBHOOK IN] assinatura={signature or 'ausente'} corpo={body.decode(errors='replace')}")
+
+        async def replay() -> ASGIMessage:
+            return received.pop(0) if received else await receive()
+
+        await self.app(scope, replay, send)
 
 
 def log_handler_failure(event: str, update: Message | MessageStatus | CallbackButton | CallbackSelection, error: Exception) -> None:
