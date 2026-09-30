@@ -57,17 +57,3 @@ def test_startup_does_not_touch_existing_users(session: Session, monkeypatch):
     session.expire_all()
     assert [user.login for user in get_all_users(session)] == ["coord"]
 
-
-@pytest.mark.parametrize("table", ["chat_histories", "user_sessions"])
-def test_startup_fails_when_a_table_still_has_the_old_schema(engine, monkeypatch, table: str):
-    """
-    O lifespan deve falhar indicando a migração quando o banco tem o esquema anterior à identidade por BSUID.
-    """
-    monkeypatch.setattr(settings, "admin_initial_password", SecretStr("SenhaInicial123"))
-    with engine.begin() as connection:
-        connection.exec_driver_sql(f"DROP TABLE {table}")
-        connection.exec_driver_sql(f"CREATE TABLE {table} (id INTEGER PRIMARY KEY, wa_id VARCHAR)")
-
-    with pytest.raises(RuntimeError, match=r"scripts\.migrate_bot_identity"):
-        with TestClient(app):
-            pass

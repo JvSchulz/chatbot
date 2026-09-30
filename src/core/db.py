@@ -1,6 +1,6 @@
 from pathlib import Path
 from sqlmodel import SQLModel, create_engine, Session
-from sqlalchemy import Engine, event, inspect
+from sqlalchemy import Engine, event
 from typing import Annotated
 from fastapi import Depends
 
@@ -10,9 +10,6 @@ sqlite_url = f"sqlite:///{DB_PATH}"
 
 # Tempo que uma escrita espera o bloqueio do SQLite antes de falhar com "database is locked"
 SQLITE_BUSY_TIMEOUT_SECONDS = 30
-
-BOT_IDENTITY_TABLES = ("chat_histories", "user_sessions")
-BOT_IDENTITY_COLUMN = "user_id"
 
 
 def set_sqlite_pragma(dbapi_connection, connection_record):
@@ -48,33 +45,6 @@ def build_engine(url: str) -> Engine:
 
 
 engine = build_engine(sqlite_url)
-
-
-def ensure_bot_identity_schema(bind: Engine) -> None:
-    """
-    Garante que o banco já foi migrado para a identidade do bot por BSUID.
-
-    O create_all não altera tabelas existentes; sem esta checagem, um banco antigo faria
-    cada mensagem falhar em silêncio.
-
-    Args:
-        bind: Motor do banco a inspecionar.
-
-    Raises:
-        RuntimeError: Se alguma tabela de histórico ou de sessões existir sem a coluna user_id.
-    """
-    inspector = inspect(bind)
-    stale = [
-        table
-        for table in BOT_IDENTITY_TABLES
-        if inspector.has_table(table)
-        and BOT_IDENTITY_COLUMN not in {column["name"] for column in inspector.get_columns(table)}
-    ]
-    if stale:
-        raise RuntimeError(
-            f"As tabelas {', '.join(stale)} usam o esquema antigo. "
-            "Pare o servidor e execute: python -m scripts.migrate_bot_identity"
-        )
 
 
 def create_db_and_tables():

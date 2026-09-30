@@ -55,15 +55,6 @@ python -m scripts.seed_menus           # só se ainda não houver menus
 python -m scripts.seed_menus --reset   # apaga os menus e recria a árvore
 ```
 
-Um banco criado antes da identidade por BSUID (tabelas `chat_histories` e `user_sessions` sem a coluna
-`user_id`) faz a aplicação recusar a inicialização e indicar o comando de migração. Com o servidor parado:
-
-```bash
-python -m scripts.migrate_bot_identity
-```
-
-O script faz uma cópia de segurança do arquivo antes de recriar as duas tabelas e imprime como restaurá-la.
-
 ## Executando
 
 ```bash

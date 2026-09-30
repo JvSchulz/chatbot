@@ -8,7 +8,7 @@ from sqlmodel import Session
 from slowapi.errors import RateLimitExceeded
 
 from src.core import config
-from src.core.db import create_db_and_tables, engine, ensure_bot_identity_schema
+from src.core.db import create_db_and_tables, engine
 from src.core.middleware import SecurityHeadersMiddleware, CSRFProtectionMiddleware
 from src.models import menu_model, user_model, chat_history_model, user_session_model, session_model
 from src.services.user_service import seed_first_admin
@@ -28,13 +28,12 @@ logging.getLogger("pywa").setLevel(logging.INFO)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Prepara o banco na inicialização: cria as tabelas, confere a migração e cria o primeiro administrador.
+    Prepara o banco na inicialização: cria as tabelas e o primeiro administrador.
 
     Args:
         app: Aplicação FastAPI que está iniciando.
     """
     create_db_and_tables()
-    ensure_bot_identity_schema(engine)
     initial_password = config.settings.admin_initial_password
     with Session(engine) as session:
         seed_first_admin(session, initial_password.get_secret_value() if initial_password else None)

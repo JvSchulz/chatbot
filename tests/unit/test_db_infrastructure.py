@@ -44,46 +44,6 @@ def test_set_sqlite_pragma_configures_wal_and_foreign_keys():
     mock_cursor.close.assert_called_once()
 
 
-
-
-
-def _engine_with_old_table(table: str):
-    """Motor em memória com o esquema atual, exceto a tabela informada, recriada no formato antigo."""
-    from sqlalchemy import create_engine
-    from sqlalchemy.pool import StaticPool
-    from sqlmodel import SQLModel
-
-    engine = create_engine("sqlite://", poolclass=StaticPool)
-    SQLModel.metadata.create_all(engine)
-    with engine.begin() as connection:
-        connection.exec_driver_sql(f"DROP TABLE {table}")
-        connection.exec_driver_sql(f"CREATE TABLE {table} (id INTEGER PRIMARY KEY, wa_id VARCHAR)")
-    return engine
-
-
-def test_ensure_bot_identity_schema_accepts_the_current_schema(engine):
-    from src.core.db import ensure_bot_identity_schema
-
-    ensure_bot_identity_schema(engine)
-
-
-def test_ensure_bot_identity_schema_accepts_an_empty_database():
-    from sqlalchemy import create_engine
-    from src.core.db import ensure_bot_identity_schema
-
-    ensure_bot_identity_schema(create_engine("sqlite://"))
-
-
-@pytest.mark.parametrize("table", ["chat_histories", "user_sessions"])
-def test_ensure_bot_identity_schema_rejects_old_tables_and_names_the_migration(table: str):
-    from src.core.db import ensure_bot_identity_schema
-
-    with pytest.raises(RuntimeError, match=r"python -m scripts\.migrate_bot_identity") as error:
-        ensure_bot_identity_schema(_engine_with_old_table(table))
-
-    assert table in str(error.value)
-
-
 def test_build_engine_hides_sql_parameters_in_errors():
     from sqlalchemy.exc import IntegrityError
     from src.core.db import build_engine
