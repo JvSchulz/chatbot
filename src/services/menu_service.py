@@ -1,3 +1,5 @@
+import re
+import unicodedata
 from typing import Sequence, Any
 from dataclasses import dataclass, replace
 from sqlmodel import Session, func, select
@@ -11,6 +13,13 @@ MENU_FIELDS_REQUIRED_MESSAGE = "Preencha nome, texto de seleção e mensagem."
 WHATSAPP_LIST_LIMIT = 10
 ROOT_CHILDREN_LIMIT = WHATSAPP_LIST_LIMIT - 1
 WHATSAPP_LIST_LIMIT_MESSAGE = f"O WhatsApp permite no máximo {WHATSAPP_LIST_LIMIT} opções por lista."
+
+
+# Sequências de dígitos maiores que isto são cortadas na chave de ordenação: o Python recusa
+# converter números gigantes e a lista de menus não pode quebrar por causa de um nome.
+MAX_SORT_DIGITS = 100
+
+DIGIT_RUNS_PATTERN = re.compile(r"(\d+)")
 
 
 @dataclass
@@ -47,6 +56,39 @@ def _clean_menu_data(data: MenuData) -> MenuData:
     return cleaned
 
 
+def menu_sort_key(text: str) -> tuple[tuple[int, int | str], ...]:
+    """
+    Gera a chave de ordenação natural de um texto de menu.
+
+    Ignora maiúsculas, minúsculas e acentos e compara sequências de dígitos como números, então
+    "2 - Y" vem antes de "10 - X". Cada trecho recebe uma etiqueta (0 para número, 1 para texto),
+    o que mantém as tuplas comparáveis quando um número encontra um texto na mesma posição.
+
+    Args:
+        text: Nome ou texto de seleção do menu.
+
+    Returns:
+        Tupla de trechos etiquetados, própria para o parâmetro key de sorted().
+    """
+    decomposed = unicodedata.normalize("NFKD", text)
+    folded = "".join(char for char in decomposed if not unicodedata.combining(char)).casefold()
+    return tuple(
+        (0, int(part[:MAX_SORT_DIGITS])) if part.isdecimal() else (1, part)
+        for part in DIGIT_RUNS_PATTERN.split(folded)
+        if part
+    )
+
+
+def _sorted_by_name(menus: Sequence[Menu]) -> list[Menu]:
+    """Ordena os menus pelo nome interno com a chave natural; empates seguem o id."""
+    return sorted(menus, key=lambda menu: (menu_sort_key(menu.name), menu.id or 0))
+
+
+def _sorted_by_selection_name(menus: Sequence[Menu]) -> list[Menu]:
+    """Ordena os menus pelo texto de seleção com a chave natural; empates seguem o id."""
+    return sorted(menus, key=lambda menu: (menu_sort_key(menu.selection_name), menu.id or 0))
+
+
 def is_root_toggle_allowed(has_root: bool, is_current_root: bool) -> bool:
     """
     Indica se o checkbox de menu raiz pode ser alterado no formulário.
@@ -63,7 +105,7 @@ def is_root_toggle_allowed(has_root: bool, is_current_root: bool) -> bool:
 
 def get_all_menus(session: Session) -> Sequence[Menu]:
     """
-    Retorna todos os menus ordenados alfabeticamente pelo nome.
+    Retorna todos os menus ordenados pelo nome com a chave natural (sem distinguir caixa e acentos).
 
     Args:
         session: Sessão ativa do banco de dados.
@@ -71,7 +113,7 @@ def get_all_menus(session: Session) -> Sequence[Menu]:
     Returns:
         Sequência de todos os menus cadastrados.
     """
-    return session.exec(select(Menu).order_by(Menu.name)).all()  # type: ignore
+    return _sorted_by_name(session.exec(select(Menu)).all())
 
 
 def get_root_menus(session: Session) -> Sequence[Menu]:
@@ -119,16 +161,16 @@ def get_root_children(session: Session) -> Sequence[Menu]:
 
 def get_submenus(session: Session, parent_id: int) -> Sequence[Menu]:
     """
-    Retorna todos os submenus vinculados a um determinado menu pai.
+    Retorna os submenus de um menu pai, na ordem em que o WhatsApp os exibe.
 
     Args:
         session: Sessão ativa do banco de dados.
         parent_id: Identificador do menu pai.
 
     Returns:
-        Sequência de submenus vinculados.
+        Submenus ordenados pelo texto de seleção com a chave natural.
     """
-    return session.exec(select(Menu).where(Menu.parent_id == parent_id)).all()
+    return _sorted_by_selection_name(session.exec(select(Menu).where(Menu.parent_id == parent_id)).all())
 
 
 def get_menu_by_id(session: Session, menu_id: int) -> Menu | None:
@@ -157,9 +199,9 @@ def get_valid_parent_menus(
         exclude_id: Identificador do menu sendo editado (exclui ele e seus descendentes).
 
     Returns:
-        Sequência de menus que podem atuar como pai sem gerar ciclos.
+        Menus que podem atuar como pai sem gerar ciclos, ordenados pelo nome.
     """
-    all_menus = session.exec(select(Menu).order_by(Menu.name)).all()  # type: ignore
+    all_menus = get_all_menus(session)
     if exclude_id is None:
         return all_menus
 
