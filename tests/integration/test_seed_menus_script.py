@@ -2,6 +2,7 @@
 Testes do script de carga de menus, sempre contra bancos temporários.
 """
 
+from collections import Counter
 from pathlib import Path
 from sqlalchemy import create_engine, event
 from sqlmodel import Session, select
@@ -9,7 +10,8 @@ from src.core.db import set_sqlite_pragma
 from src.models.chat_history_model import ChatHistory
 from src.models.menu_model import Menu
 from src.models.user_session_model import UserSession
-from scripts.seed_menus import main, seed_menus
+from scripts.seed_menus import MENUS_DATA, main, seed_menus
+from src.services.menu_service import MAX_MESSAGE_LEN, MAX_SELECTION_NAME_LEN, MENU_CHILDREN_LIMIT, menu_sort_key
 
 TOP_LEVEL = ["menu_cursos", "menu_secretaria", "menu_suporte", "menu_atendente"]
 
@@ -110,3 +112,25 @@ def test_seed_creates_missing_parent_directories(tmp_path: Path):
     seed_menus(database)
 
     assert database.exists()
+
+
+def test_seed_titles_and_messages_fit_the_whatsapp_limits():
+    for item in MENUS_DATA:
+        assert len(item["selection_name"]) <= MAX_SELECTION_NAME_LEN, item["selection_name"]
+        assert len(item["message"]) <= MAX_MESSAGE_LEN, item["name"]
+
+
+def test_seed_parents_stay_within_the_children_limit():
+    children_per_parent = Counter(item["parent_id"] for item in MENUS_DATA if item["parent_id"] is not None)
+
+    assert max(children_per_parent.values()) <= MENU_CHILDREN_LIMIT
+
+
+def test_seed_keeps_the_numbered_titles_in_reading_order():
+    by_parent: dict[int, list[str]] = {}
+    for item in MENUS_DATA:
+        if item["parent_id"] is not None:
+            by_parent.setdefault(item["parent_id"], []).append(item["selection_name"])
+
+    for titles in by_parent.values():
+        assert sorted(titles, key=menu_sort_key) == titles
