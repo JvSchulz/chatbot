@@ -8,6 +8,10 @@ from src.services.webhook.message_handler import (
     ACTION_ASK_QUESTION,
     build_root_response_object,
     build_child_response_object,
+    build_child_menu_buttons,
+    build_child_menu_section_list,
+    build_root_menu_buttons,
+    build_root_menu_section_list,
 )
 
 
@@ -82,11 +86,11 @@ def test_build_root_response_object_with_three_menus_produces_section_list():
 
     row_map = {r.callback_data: r for r in rows}
     assert row_map["menu:1"].title == "Graduação"
-    assert row_map["menu:1"].description == "Graduação"
+    assert row_map["menu:1"].description is None
     assert row_map["menu:2"].title == "Pós-Graduação"
-    assert row_map["menu:2"].description == "Pós-Graduação"
+    assert row_map["menu:2"].description is None
     assert row_map["menu:3"].title == "Extensão"
-    assert row_map["menu:3"].description == "Extensão"
+    assert row_map["menu:3"].description is None
 
     question_row = row_map[ACTION_ASK_QUESTION]
     assert question_row.title == "Fazer uma pergunta"
@@ -153,13 +157,13 @@ def test_build_child_response_object_with_four_submenus_produces_section_list_wi
 
     row_map = {r.callback_data: r for r in rows}
     assert row_map["menu:10"].title == "Matrícula"
-    assert row_map["menu:10"].description == "Matrícula"
+    assert row_map["menu:10"].description is None
     assert row_map["menu:11"].title == "Calendário"
-    assert row_map["menu:11"].description == "Calendário"
+    assert row_map["menu:11"].description is None
     assert row_map["menu:12"].title == "Horários"
-    assert row_map["menu:12"].description == "Horários"
+    assert row_map["menu:12"].description is None
     assert row_map["menu:13"].title == "Histórico Escolar"
-    assert row_map["menu:13"].description == "Histórico Escolar"
+    assert row_map["menu:13"].description is None
 
 
 def test_build_child_response_object_with_empty_submenus():
@@ -170,3 +174,120 @@ def test_build_child_response_object_with_empty_submenus():
     assert result["text"] == "Vazio"
     assert result["buttons"] == []
 
+
+
+def test_root_menu_buttons_never_exceed_the_quick_reply_limit():
+    menus = [_make_menu(1, "A"), _make_menu(2, "B"), _make_menu(3, "C")]
+
+    buttons = build_root_menu_buttons(menus)
+
+    assert [b.callback_data for b in buttons] == ["menu:1", "menu:2", "menu:3"]
+
+
+def _menu_with_distinct_selection_name() -> Menu:
+    return Menu(id=7, name="nome_interno", selection_name="Texto do botão", message="m", parent_id=1)
+
+
+def _menu_without_selection_name() -> Menu:
+    return Menu(id=8, name="nome_interno", selection_name="", message="m", parent_id=1)
+
+
+def test_buttons_use_the_selection_name_and_fall_back_to_the_name():
+    buttons = build_child_menu_buttons([_menu_with_distinct_selection_name(), _menu_without_selection_name()])
+
+    assert [b.title for b in buttons] == ["Texto do botão", "nome_interno"]
+
+
+def test_root_and_child_rows_use_the_selection_name_and_fall_back_to_the_name():
+    menus = [_menu_with_distinct_selection_name(), _menu_without_selection_name()]
+
+    for section_list in (build_root_menu_section_list(menus), build_child_menu_section_list(menus)):
+        rows = list(list(section_list.sections)[0].rows)
+        assert [row.title for row in rows[:2]] == ["Texto do botão", "nome_interno"]
+        assert [row.description for row in rows[:2]] == [None, None]
+
+
+def test_menu_rows_never_carry_a_description():
+    nameless = Menu(id=9, name="", selection_name="Só título", message="m", parent_id=1)
+    named = Menu(id=10, name="menu_interno", selection_name="Título", message="m", parent_id=1)
+
+    for section_list in (build_root_menu_section_list([nameless, named]), build_child_menu_section_list([nameless, named])):
+        menu_rows = [row for row in _rows(section_list) if row.callback_data.startswith("menu:")]
+        assert [row.description for row in menu_rows] == [None, None]
+
+
+def _rows(section_list) -> list:
+    return list(list(section_list.sections)[0].rows)
+
+
+def test_root_list_is_truncated_to_ten_rows_keeping_the_ask_option_last():
+    menus = [_make_menu(index, f"Menu {index}") for index in range(1, 13)]
+
+    rows = _rows(build_root_menu_section_list(menus))
+
+    assert len(rows) == 10
+    assert [row.callback_data for row in rows[:9]] == [f"menu:{index}" for index in range(1, 10)]
+    assert rows[-1].callback_data == ACTION_ASK_QUESTION
+
+
+def test_child_list_is_truncated_to_ten_rows():
+    menus = [_make_menu(index, f"Menu {index}", parent_id=99) for index in range(1, 14)]
+
+    rows = _rows(build_child_menu_section_list(menus))
+
+    assert [row.callback_data for row in rows] == [f"menu:{index}" for index in range(1, 11)]
+
+
+def test_lists_at_the_limit_are_not_truncated():
+    root_rows = _rows(build_root_menu_section_list([_make_menu(index, "M") for index in range(1, 10)]))
+    child_rows = _rows(build_child_menu_section_list([_make_menu(index, "M", 99) for index in range(1, 11)]))
+
+    assert (len(root_rows), len(child_rows)) == (10, 10)
+    assert root_rows[-1].callback_data == ACTION_ASK_QUESTION
+
+
+def test_truncation_is_reported_in_the_log(caplog):
+    menus = [_make_menu(index, "M", parent_id=99) for index in range(1, 13)]
+
+    with caplog.at_level("WARNING", logger="Chatbot"):
+        build_child_menu_section_list(menus)
+
+    assert caplog.messages == ["[MENU] Lista com 12 opções excede o limite do WhatsApp; exibindo 10."]
+
+
+def test_lists_within_the_limit_log_nothing(caplog):
+    with caplog.at_level("WARNING", logger="Chatbot"):
+        build_child_menu_section_list([_make_menu(1, "M", 99)])
+        build_root_menu_section_list([_make_menu(1, "M")])
+
+    assert caplog.messages == []
+
+
+def _internal_names(count: int, parent_id: int | None) -> list[Menu]:
+    return [
+        Menu(id=index, name=f"menu_interno_{index}", selection_name=f"Opção {index}", message="m", parent_id=parent_id)
+        for index in range(1, count + 1)
+    ]
+
+
+def _all_row_text(section_list) -> str:
+    return " ".join(f"{row.title} {row.description or ''}" for row in _rows(section_list))
+
+
+def test_root_list_rows_carry_no_internal_name():
+    payload = build_root_response_object(menus=_internal_names(6, None), intro_text="Escolha:")
+
+    assert "menu_interno" not in _all_row_text(payload["buttons"])
+
+
+def test_child_list_rows_carry_no_internal_name():
+    payload = build_child_response_object(menus=_internal_names(6, 99), intro_text="Escolha:")
+
+    assert "menu_interno" not in _all_row_text(payload["buttons"])
+    assert [row.title for row in _rows(payload["buttons"])] == [f"Opção {index}" for index in range(1, 7)]
+
+
+def test_the_ask_row_keeps_its_fixed_description():
+    rows = _rows(build_root_menu_section_list(_internal_names(4, None)))
+
+    assert rows[-1].description == "Tirar dúvidas com nosso assistente virtual"

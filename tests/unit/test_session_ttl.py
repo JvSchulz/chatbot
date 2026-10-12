@@ -43,7 +43,7 @@ def test_evaluate_session_ttl_preserves_conversational_when_active():
     """
     now = datetime.now(timezone.utc)
     session = UserSession(
-        wa_id="554798765432",
+        user_id="BR.1000000000001",
         mode="conversational",
         current_menu_id=5,
         last_interaction_at=now - timedelta(minutes=10),
@@ -61,7 +61,7 @@ def test_evaluate_session_ttl_resets_to_menu_when_expired():
     """
     now = datetime.now(timezone.utc)
     session = UserSession(
-        wa_id="554798765432",
+        user_id="BR.1000000000001",
         mode="conversational",
         current_menu_id=5,
         last_interaction_at=now - timedelta(minutes=20),
@@ -71,3 +71,24 @@ def test_evaluate_session_ttl_resets_to_menu_when_expired():
 
     assert evaluated.mode == "menu"
     assert evaluated.current_menu_id is None
+
+
+def test_evaluate_session_ttl_uses_the_given_reference_time_not_the_clock():
+    last_interaction = datetime(2020, 1, 1, 12, 0, tzinfo=timezone.utc)
+    session = UserSession(
+        user_id="BR.1000000000001",
+        mode="conversational",
+        current_menu_id=5,
+        last_interaction_at=last_interaction,
+    )
+
+    evaluated = evaluate_session_ttl(session, current_time=last_interaction + timedelta(minutes=5))
+
+    assert (evaluated.mode, evaluated.current_menu_id) == ("conversational", 5)
+
+
+def test_is_session_expired_defaults_to_the_current_time():
+    now = datetime.now(timezone.utc)
+
+    assert is_session_expired(now - timedelta(minutes=1)) is False
+    assert is_session_expired(now - timedelta(minutes=20)) is True

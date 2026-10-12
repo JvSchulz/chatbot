@@ -2,6 +2,7 @@
 Testes unitários para utilitários de infraestrutura de banco de dados e sessão.
 """
 
+import pytest
 from sqlmodel import Session
 from src.core.db import create_db_and_tables, get_session
 
@@ -43,4 +44,54 @@ def test_set_sqlite_pragma_configures_wal_and_foreign_keys():
     mock_cursor.close.assert_called_once()
 
 
+def test_build_engine_hides_sql_parameters_in_errors():
+    from sqlalchemy.exc import IntegrityError
+    from src.core.db import build_engine
 
+    engine = build_engine("sqlite://")
+    with engine.begin() as connection:
+        connection.exec_driver_sql("CREATE TABLE secrets (id INTEGER PRIMARY KEY, phone VARCHAR NOT NULL)")
+
+    with pytest.raises(IntegrityError) as error:
+        with engine.begin() as connection:
+            connection.exec_driver_sql("INSERT INTO secrets (id, phone) VALUES (?, ?)", (1, None))
+            connection.exec_driver_sql("INSERT INTO secrets (id, phone) VALUES (?, ?)", (1, "554799998888"))
+
+    assert "554799998888" not in str(error.value)
+    assert "[parameters:" not in str(error.value)
+
+
+def test_build_engine_keeps_the_sqlite_pragmas():
+    from src.core.db import build_engine
+
+    with build_engine("sqlite://").connect() as connection:
+        assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
+
+
+def test_production_engine_hides_sql_parameters():
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-c", "import src.core.db as db; print(db.engine.hide_parameters)"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert result.stdout.strip() == "True"
+
+
+def test_open_event_session_does_not_autoflush_and_uses_the_configured_engine(engine):
+    from src.core.db import open_event_session
+
+    with open_event_session() as event_session:
+        assert event_session.autoflush is False
+        assert event_session.get_bind() is engine
+
+
+def test_build_engine_waits_up_to_thirty_seconds_for_the_write_lock():
+    from src.core.db import build_engine
+
+    with build_engine("sqlite://").connect() as connection:
+        assert connection.exec_driver_sql("PRAGMA busy_timeout").scalar() == 30000

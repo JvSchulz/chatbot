@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% set active_page = "usuarios" %}
+
+{% block title %}Usuários - Painel de Administração{% endblock %}
+
+{% block content %}
+<section class="page-header page-header-compact">
+    <h2 class="page-title">Gerenciador de Usuários</h2>
+    <p class="page-subtitle">Selecione um usuário na coluna esquerda para editar ou cadastre um novo acesso.</p>
+</section>
+
+<section class="split-layout">
+    <div class="split-sidebar">
+        <div class="split-sidebar-header">
+            <h3>Usuários Cadastrados</h3>
+            <button type="button"
+                    hx-get="/usuarios/novo/card"
+                    hx-target="#user-detail-pane"
+                    hx-swap="innerHTML"
+                    class="btn btn-primary btn-small">
+                + Novo Usuário
+            </button>
+        </div>
+        <div id="user-list-container"
+             class="split-list"
+             hx-get="/usuarios/lista"
+             hx-trigger="userListChanged from:body">
+            {% include "partials/_user_list_items.html" %}
+        </div>
+    </div>
+
+    <div id="user-detail-pane" class="split-detail">
+        {% if selected_user %}
+            {% set user = selected_user %}
+            {% include "partials/_user_card.html" %}
+        {% else %}
+            {% set user = none %}
+            {% include "partials/_user_card.html" %}
+        {% endif %}
+    </div>
+</section>
+{% endblock %}

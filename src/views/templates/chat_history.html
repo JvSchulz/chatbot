@@ -1,77 +1,54 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
+{% extends "base.html" %}
+{% set active_page = "historico" %}
 
-<head>
-    <meta charset="UTF-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Histórico de Conversas - Meu Chatbot</title>
-    <link rel="stylesheet" href="/static/style.css">
-</head>
+{% block title %}Histórico de Conversas - Painel de Administração{% endblock %}
 
-<body>
-    <header class="header">
-        <div class="header-brand">
-            <div class="logo">CB</div>
-            <h1>Painel de Administração</h1>
-        </div>
+{% block content %}
+<section class="page-header">
+    <h2 class="page-title">Histórico de Mensagens</h2>
+    <p class="page-subtitle">Logs de interações dos usuários com o chatbot no WhatsApp.</p>
+</section>
 
-        <nav class="nav-links">
-            <a href="/" class="nav-item">Início</a>
-            <a href="/menus" class="nav-item">Lista Menus</a>
-            <a href="/menus/novo" class="nav-item">Formulário Menus</a>
-            <a href="/usuarios" class="nav-item">Usuários</a>
-            <a href="/historico" class="nav-item active">Histórico</a>
-            <a href="/login" class="nav-item">Login</a>
-        </nav>
-    </header>
+{% if history.rows %}
+<section class="table-container">
+    <table class="table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>ID Usuário</th>
+                <th>Remetente</th>
+                <th>Conteúdo</th>
+                <th>Menu Acessado</th>
+                <th>Data/Hora</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in history.rows %}
+            <tr>
+                <td>{{ row.id }}</td>
+                <td>{{ row.user_label }}</td>
+                <td>{{ row.role_label }}</td>
+                <td class="history-content">{{ row.content }}</td>
+                <td>{{ row.menu_name }}</td>
+                <td>{{ row.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
 
-    <main class="main-container">
-        <section class="page-header">
-            <h2 class="page-title">Histórico de Mensagens</h2>
-            <p class="page-subtitle">Logs de interações dos usuários nos canais Telegram e WhatsApp.</p>
-        </section>
-
-        <section class="table-container">
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Canal</th>
-                        <th>ID Usuário</th>
-                        <th>Remetente</th>
-                        <th>Conteúdo</th>
-                        <th>Menu Acessado</th>
-                        <th>Data/Hora</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>1</td>
-                        <td>Telegram</td>
-                        <td>987654321</td>
-                        <td>Usuário</td>
-                        <td>/start</td>
-                        <td>1 (inicio)</td>
-                        <td>2026-08-31 10:15:00</td>
-                    </tr>
-                    <tr>
-                        <td>2</td>
-                        <td>Telegram</td>
-                        <td>987654321</td>
-                        <td>Bot</td>
-                        <td>Olá! Bem-vindo ao atendimento...</td>
-                        <td>1 (inicio)</td>
-                        <td>2026-08-31 10:15:01</td>
-                    </tr>
-                </tbody>
-            </table>
-        </section>
-    </main>
-
-    <footer class="footer">
-        Todos os direitos reservados UDESC &copy; 2026
-    </footer>
-</body>
-
-</html>
+{% if history.has_previous or history.has_next %}
+<nav class="pagination" aria-label="Paginação do histórico">
+    {% if history.has_previous %}
+    <a class="btn btn-secondary" href="/historico?page={{ history.page - 1 }}">Anterior</a>
+    {% endif %}
+    <span class="pagination-status">Página {{ history.page }}</span>
+    {% if history.has_next %}
+    <a class="btn btn-secondary" href="/historico?page={{ history.page + 1 }}">Próxima</a>
+    {% endif %}
+</nav>
+{% endif %}
+{% else %}
+<div class="empty-state">Nenhuma mensagem registrada.</div>
+{% endif %}
+{% endblock %}

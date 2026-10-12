@@ -1,32 +1,67 @@
 from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request, Depends, HTTPException, status, Response
+from fastapi.responses import RedirectResponse
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.staticfiles import StaticFiles
+from sqlmodel import Session
+from slowapi.errors import RateLimitExceeded
+
 from src.core import config
-from pywa.client import WhatsApp
+from src.core.db import create_db_and_tables, engine
+from src.core.middleware import SecurityHeadersMiddleware, CSRFProtectionMiddleware
+from src.models import menu_model, user_model, chat_history_model, user_session_model, session_model
+from src.services.user_service import seed_first_admin
+from src.controllers.auth_controller import router as auth_router, get_current_admin, limiter, login_rate_limit_handler
+from src.controllers.history_controller import router as history_router
 from src.controllers.menus_controller import router as menus_router
 from src.controllers.users_controller import router as users_router
-from src.controllers.webhook_controller import setup_webhook_handlers
-from dotenv import load_dotenv
-from src.core.db import create_db_and_tables
-from src.models import menu_model, user_model, chat_history_model, user_session_model
-import os
+from src.controllers.webhook_controller import WebhookLogMiddleware, setup_webhook_handlers
+from pywa.client import WhatsApp
 import logging
 
-load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
+# Em DEBUG a PyWa registra o corpo de cada envio à Meta e a resposta recebida.
+logging.getLogger("pywa").setLevel(logging.DEBUG)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Runs when FastAPI starts up
+    """
+    Prepara o banco na inicialização: cria as tabelas e o primeiro administrador.
+
+    Args:
+        app: Aplicação FastAPI que está iniciando.
+    """
     create_db_and_tables()
+    initial_password = config.settings.admin_initial_password
+    with Session(engine) as session:
+        seed_first_admin(session, initial_password.get_secret_value() if initial_password else None)
     yield
-    # Code here would run on server shutdown (if needed)
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, login_rate_limit_handler)
+
+
+@app.exception_handler(HTTPException)
+async def unauthenticated_exception_handler(request: Request, exc: HTTPException):
+    """
+    Trata erros de autenticação (HTTP 401) redirecionando navegadores e requisições HTMX para /login.
+    """
+    if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+        if request.headers.get("HX-Request") == "true":
+            return Response(status_code=status.HTTP_200_OK, headers={"HX-Redirect": "/login"})
+        accept = request.headers.get("Accept", "")
+        if "text/html" in accept or "application/json" not in accept:
+            return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    return await http_exception_handler(request, exc)
+
+
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(CSRFProtectionMiddleware)
+app.add_middleware(WebhookLogMiddleware)
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -36,33 +71,27 @@ app.mount(
     name="static",
 )
 
-app.mount(
-    "/assets",
-    StaticFiles(directory=BASE_DIR / "src" / "assets"),
-    name="assets",
-)
-
-templates = config.templates
+app.include_router(auth_router)
 app.include_router(menus_router)
 app.include_router(users_router)
+app.include_router(history_router)
 
 wa = WhatsApp(
-    phone_id=os.getenv("WA_PHONE_ID"),
-    token=os.getenv("WA_TOKEN"),
+    phone_id=config.settings.wa_phone_id,
+    token=config.settings.wa_token.get_secret_value(),
+    app_secret=config.settings.app_secret.get_secret_value(),
     server=app,
-    verify_token="chatbotudesc",
+    verify_token=config.settings.wa_verify_token.get_secret_value(),
     webhook_endpoint="/webhook",
-    validate_updates=False,
+    validate_updates=True,
 )
 
 setup_webhook_handlers(wa)
 
 
-@app.get("/", response_class=HTMLResponse)
-def index(request: Request):
-    return templates.TemplateResponse(request=request, name="index.html")
-
-
-@app.get("/historico", response_class=HTMLResponse)
-def chat_history(request: Request):
-    return templates.TemplateResponse(request=request, name="chat_history.html")
+@app.get("/", dependencies=[Depends(get_current_admin)])
+def index() -> RedirectResponse:
+    """
+    Redireciona a raiz do painel para o gerenciador de menus, a tela padrão dos administradores.
+    """
+    return RedirectResponse(url="/menus", status_code=status.HTTP_303_SEE_OTHER)

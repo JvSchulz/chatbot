@@ -1,0 +1,22 @@
+{% for menu in menus %}
+<a href="#"
+   hx-get="/menus/{{ menu.id }}/card"
+   hx-target="#detail-pane"
+   hx-swap="innerHTML"
+   data-id="{{ menu.id }}"
+   class="split-list-item{% if selected_menu and selected_menu.id == menu.id %} active{% endif %}">
+    <div>
+        <strong>{{ menu.name }}</strong>
+        <div class="split-list-item-detail">{{ menu.selection_name }}</div>
+    </div>
+    {% if menu.parent_id %}
+    <span class="badge badge-neutral">Submenu</span>
+    {% else %}
+    <span class="badge badge-primary">Raiz</span>
+    {% endif %}
+</a>
+{% else %}
+<div class="empty-state">
+    Nenhum menu cadastrado.
+</div>
+{% endfor %}

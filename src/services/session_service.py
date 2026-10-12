@@ -1,18 +1,10 @@
 from datetime import datetime, timezone, timedelta
 from sqlmodel import Session, select
-from src.core.db import engine
 from src.models.user_session_model import UserSession
 
 SESSION_TTL_MINUTES = 15
-MODE_MENU = "menu"
-MODE_CONVERSATIONAL = "conversational"
-
-
-def _ensure_utc(dt: datetime) -> datetime:
-    """Garante que a data/hora esteja ciente de fuso horário UTC."""
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt
+SESSION_MODE_MENU = "menu"
+SESSION_MODE_CONVERSATIONAL = "conversational"
 
 
 def is_session_expired(
@@ -31,9 +23,8 @@ def is_session_expired(
     Returns:
         True se a inatividade for estritamente superior ao limite estipulado, False caso contrário.
     """
-    now = _ensure_utc(current_time or datetime.now(timezone.utc))
-    last_dt = _ensure_utc(last_interaction_at)
-    elapsed = now - last_dt
+    now = current_time or datetime.now(timezone.utc)
+    elapsed = now - last_interaction_at
     return elapsed > timedelta(minutes=max_inactivity_minutes)
 
 
@@ -52,89 +43,54 @@ def evaluate_session_ttl(
         Instância de UserSession com estado atualizado após checagem de TTL.
     """
     if is_session_expired(session.last_interaction_at, current_time=current_time):
-        session.mode = MODE_MENU
+        session.mode = SESSION_MODE_MENU
         session.current_menu_id = None
     return session
 
 
-def get_or_create_session(
-    wa_id: str,
-    db_session: Session | None = None,
-) -> UserSession:
+def get_or_create_session(session: Session, user_id: str, wa_id: str | None) -> UserSession:
     """
-    Recupera a sessão existente do usuário ou instancia uma nova em caso de primeira visita.
+    Recupera a sessão do usuário (chave BSUID) ou registra uma nova na primeira visita.
+
+    A expiração por inatividade e a atualização do wa_id ficam na sessão do banco recebida e
+    são gravadas quando quem chamou confirma a transação do evento; esta função não faz commit.
 
     Args:
-        wa_id: Identificador WhatsApp do remetente.
-        db_session: Sessão opcional do banco para reaproveitamento em transações.
+        session: Sessão ativa do banco de dados, dona da transação do evento.
+        user_id: BSUID do usuário.
+        wa_id: Telefone do usuário quando disponível; mantém o valor gravado se for None.
 
     Returns:
         Instância de UserSession recuperada ou recém-criada.
     """
     now = datetime.now(timezone.utc)
-
-    def _query(s: Session) -> UserSession:
-        statement = select(UserSession).where(UserSession.wa_id == wa_id)
-        existing = s.exec(statement).first()
-        if existing:
-            existing.last_interaction_at = _ensure_utc(existing.last_interaction_at)
-            return evaluate_session_ttl(existing, current_time=now)
-
-        new_session = UserSession(
+    user_session = session.exec(select(UserSession).where(UserSession.user_id == user_id)).first()
+    if user_session:
+        evaluate_session_ttl(user_session, current_time=now)
+        if wa_id:
+            user_session.wa_id = wa_id
+    else:
+        user_session = UserSession(
+            user_id=user_id,
             wa_id=wa_id,
-            mode=MODE_MENU,
+            mode=SESSION_MODE_MENU,
             current_menu_id=None,
             last_interaction_at=now,
         )
-        s.add(new_session)
-        s.commit()
-        s.refresh(new_session)
-        new_session.last_interaction_at = _ensure_utc(new_session.last_interaction_at)
-        return new_session
-
-    if db_session:
-        return _query(db_session)
-
-    with Session(engine) as s:
-        return _query(s)
+        session.add(user_session)
+    return user_session
 
 
-def update_session_activity(
-    wa_id: str,
-    mode: str | None = None,
-    menu_id: int | None = None,
-) -> UserSession:
+def update_session_activity(user_session: UserSession, menu_id: int | None) -> None:
     """
-    Atualiza o carimbo de última atividade e opcionalmente o modo/menu da sessão.
+    Registra na sessão o carimbo da última atividade e o menu atualmente exibido ao usuário.
+
+    A alteração fica na sessão do banco a que o objeto pertence e é gravada quando quem chamou
+    confirma a transação do evento; esta função não faz commit.
 
     Args:
-        wa_id: Identificador WhatsApp do remetente.
-        mode: Novo modo opcional para a sessão ('menu' ou 'conversational').
-        menu_id: Identificador opcional do menu atualmente ativo.
-
-    Returns:
-        Instância de UserSession atualizada.
+        user_session: Sessão do usuário obtida em get_or_create_session.
+        menu_id: Identificador do menu exibido; None indica o menu raiz e limpa a referência.
     """
-    now = datetime.now(timezone.utc)
-    with Session(engine) as s:
-        statement = select(UserSession).where(UserSession.wa_id == wa_id)
-        user_session = s.exec(statement).first()
-        if not user_session:
-            user_session = UserSession(
-                wa_id=wa_id,
-                mode=mode or MODE_MENU,
-                current_menu_id=menu_id,
-                last_interaction_at=now,
-            )
-            s.add(user_session)
-        else:
-            user_session.last_interaction_at = now
-            if mode is not None:
-                user_session.mode = mode
-            if menu_id is not None:
-                user_session.current_menu_id = menu_id
-
-        s.commit()
-        s.refresh(user_session)
-        user_session.last_interaction_at = _ensure_utc(user_session.last_interaction_at)
-        return user_session
+    user_session.last_interaction_at = datetime.now(timezone.utc)
+    user_session.current_menu_id = menu_id

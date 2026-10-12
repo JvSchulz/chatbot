@@ -1,0 +1,79 @@
+{% set source = draft or user %}
+<div class="form-card form-card-detail"{% if user and user.id %} data-entity-id="{{ user.id }}"{% endif %}>
+    <div class="card-header">
+        <div>
+            <h2 class="page-title card-title">
+                {% if user and user.id %}Editar Usuário: {{ user.login }}{% else %}Novo Usuário{% endif %}
+            </h2>
+            <p class="page-subtitle card-subtitle">
+                Gerencie credenciais e privilégios de acesso ao painel.
+            </p>
+        </div>
+        {% if user and user.id %}
+        <button type="button"
+                hx-delete="/usuarios/{{ user.id }}"
+                hx-target="#user-detail-pane"
+                hx-swap="innerHTML"
+                hx-confirm="Tem certeza que deseja excluir o usuário '{{ user.login }}'?"
+                class="btn btn-secondary btn-danger-outline">
+            Excluir
+        </button>
+        {% endif %}
+    </div>
+
+    <div id="user-error">
+        {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+        {% endif %}
+    </div>
+
+    <form hx-post="{% if user and user.id %}/usuarios/{{ user.id }}{% else %}/usuarios{% endif %}"
+          hx-target="#user-detail-pane"
+          hx-swap="innerHTML">
+
+        <div class="form-group">
+            <label for="login">Login / Nome de Usuário</label>
+            <input type="text"
+                   id="login"
+                   name="login"
+                   class="form-input"
+                   placeholder="Ex: admin"
+                   value="{% if source %}{{ source.login }}{% endif %}"
+                   required>
+        </div>
+
+        <div class="form-group">
+            <label for="password">Senha</label>
+            <input type="password"
+                   id="password"
+                   name="password"
+                   class="form-input"
+                   placeholder="{% if user and user.id %}Deixe em branco para manter a senha atual{% else %}Digite a senha inicial{% endif %}"
+                   {% if not user or not user.id %}required{% endif %}>
+        </div>
+
+        <div class="form-group form-group-inline">
+            <input type="checkbox"
+                   id="is_admin"
+                   name="is_admin"
+                   value="true"
+                   class="form-checkbox"
+                   {% if source and source.is_admin %}checked{% endif %}>
+            <label for="is_admin">
+                Perfil de Administrador (acesso completo)
+            </label>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">
+                Salvar Usuário
+            </button>
+            <a href="#"
+               hx-get="{% if user and user.id %}/usuarios/{{ user.id }}/card{% else %}/usuarios/novo/card{% endif %}"
+               hx-target="#user-detail-pane"
+               class="btn btn-secondary">
+                Limpar
+            </a>
+        </div>
+    </form>
+</div>

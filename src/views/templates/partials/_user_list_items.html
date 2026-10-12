@@ -1,0 +1,21 @@
+{% for user in users %}
+<a href="#"
+   hx-get="/usuarios/{{ user.id }}/card"
+   hx-target="#user-detail-pane"
+   hx-swap="innerHTML"
+   data-id="{{ user.id }}"
+   class="split-list-item{% if selected_user and selected_user.id == user.id %} active{% endif %}">
+    <div>
+        <strong>{{ user.login }}</strong>
+    </div>
+    {% if user.is_admin %}
+    <span class="badge badge-primary">Admin</span>
+    {% else %}
+    <span class="badge badge-neutral">Usuário</span>
+    {% endif %}
+</a>
+{% else %}
+<div class="empty-state">
+    Nenhum usuário cadastrado.
+</div>
+{% endfor %}

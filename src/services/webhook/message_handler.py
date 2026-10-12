@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import logging
+import re
 from typing import Any, Sequence
 from pywa.client import WhatsApp
 from pywa.types.callback import (
@@ -12,13 +13,23 @@ from pywa.types.callback import (
 )
 from pywa.types.message import Message
 from pywa.types.message_status import MessageStatus
+from pywa.types.user import User
+from sqlmodel import Session
 from src.models.menu_model import Menu
-from src.services.menu_service import get_menu_by_id, get_root_menus, get_submenus
-from src.services.session_service import get_or_create_session, update_session_activity
+from src.services.menu_service import (
+    get_menu_by_id,
+    get_root_children,
+    get_root_menu,
+    get_submenus,
+)
+from src.services.session_service import (
+    SESSION_MODE_CONVERSATIONAL,
+    get_or_create_session,
+    update_session_activity,
+)
 from src.services.webhook.chat_history_log import (
-    is_first_interaction,
-    save_message_log,
     save_bot_reply_log,
+    save_user_log,
 )
 
 logger = logging.getLogger("Chatbot")
@@ -28,151 +39,135 @@ MAX_QUICK_REPLY_BUTTONS = 3
 MAX_BUTTON_TITLE_LEN = 20
 MAX_ROW_TITLE_LEN = 24
 MAX_ROW_DESC_LEN = 72
+MAX_LIST_ROWS = 10
 
 # Constantes de ação e prefixos de callback
 ACTION_ASK_QUESTION = "action:ask_question"
 ACTION_ROOT = "action:root"
 PREFIX_MENU = "menu:"
 
-# Modos de sessão de conversa
-SESSION_MODE_MENU = "menu"
-SESSION_MODE_CONVERSATIONAL = "conversational"
+NO_ROOT_MESSAGE = "Atendimento indisponível no momento. Tente novamente mais tarde."
+MODEL_UNAVAILABLE_MESSAGE = (
+    "Nosso assistente está temporariamente indisponível. Escolha uma opção do menu:"
+)
 
+# Máximo de dígitos aceito em um identificador de menu (cabe no INTEGER do SQLite e
+# evita o limite de conversão de strings numéricas longas do Python)
+MAX_MENU_ID_DIGITS = 18
+
+# Trechos de textos externos que identificam o usuário: telefones (8+ dígitos) e BSUIDs
+PERSONAL_DATA_PATTERN = re.compile(r"\d{8,}|\b[A-Z]{2}\.\d+")
+
+# Quantidade de caracteres finais do identificador que aparecem nos logs
+MASKED_ID_VISIBLE_CHARS = 4
+
+MENU_UNAVAILABLE_MESSAGE = "Esse menu não está mais disponível. Aqui estão as opções principais:"
 
 @dataclass(frozen=True)
 class MessageContext:
     """
-    Estrutura de dados base contendo o contexto normalizado da mensagem recebida.
+    Estrutura de dados base contendo o contexto normalizado do evento recebido.
 
     Attributes:
-        sender_phone: Número de telefone de origem (wa_id).
-        target_phone: Número normalizado para envio (com nono dígito quando aplicável).
+        session: Sessão do banco de dados dona da transação do evento (confirmada ao final do tratador).
+        user_id: BSUID do usuário (sempre presente).
+        wa_id: Telefone do usuário, ausente quando ele usa apenas nome de usuário.
+        reply_to: Destinatário das respostas, definido por resolve_reply_target.
         user_name: Nome de exibição do usuário remetente.
-        message_text: Conteúdo textual da mensagem recebida.
+        message_text: Texto da mensagem ou título da opção selecionada.
     """
 
-    sender_phone: str
-    target_phone: str
+    session: Session
+    user_id: str
+    wa_id: str | None
+    reply_to: str
     user_name: str
     message_text: str
 
 
-def handle_message(client: WhatsApp, msg: Message) -> None:
+def handle_message(client: WhatsApp, msg: Message, session: Session) -> None:
     """
     Orquestra o fluxo de processamento para mensagens de texto recebidas pelo webhook.
 
+    Tudo que o evento grava (sessão, mensagem recebida e resposta) entra em uma única transação,
+    confirmada só no fim: se qualquer gravação falhar, nada do evento fica no banco. As gravações
+    ficam pendentes até o commit, então o bloqueio de escrita do SQLite não cobre o envio à Meta.
+
     Esteira arquitetural de execução:
     1. Extração do contexto base da mensagem recebida (MessageContext).
-    2. Verificação de primeira interação do remetente.
-    3. Identificação do modo de atendimento (Menu vs Conversacional LLM).
-    4. Construção da resposta especializada baseada no modo ativo.
-    5. Persistência da interação no histórico de auditoria.
-    6. Despacho da resposta ao usuário via WhatsApp.
+    2. Recuperação da sessão (TTL avaliado) e identificação do modo de atendimento.
+    3. Registro da mensagem recebida no histórico de auditoria.
+    4. Construção e despacho da resposta ao usuário via WhatsApp.
+    5. Registro da resposta enviada e da atividade da sessão.
+    6. Confirmação da transação do evento.
 
     Args:
         client: Cliente WhatsApp do PyWa.
         msg: Mensagem recebida contendo remetente e conteúdo textual.
+        session: Sessão do banco de dados que abrange o evento inteiro.
     """
-    context = extract_message_context(msg)
+    context = extract_message_context(msg, session)
     if not context:
+        logger.warning("[INBOUND] Mensagem recebida sem BSUID de usuário válido.")
         return
 
-    logger.info(
-        f"[INBOUND] De: {context.user_name} ({context.sender_phone}) | Texto: '{context.message_text}'"
-    )
+    logger.info(f"[INBOUND] Tipo: texto | Usuário: {mask_user_id(context.user_id)}")
 
-    # 1. Verifica primeira interação do usuário no histórico
-    _first_interaction = is_first_interaction(context.sender_phone)
+    user_session = get_or_create_session(session, context.user_id, context.wa_id)
+    save_user_log(context)
 
-    # 2. Identifica o modo de atendimento (Menu vs Conversacional LLM)
-    session_mode = identify_session_mode(context.sender_phone)
+    response_payload = build_mode_response(session, user_session.mode)
 
-    # 3. Constrói a carga de resposta adequada para o modo
-    response_payload = build_mode_response(mode=session_mode, context=context)
-
-    # 4. Registra a interação no histórico de conversas
-    save_message_log(msg=msg, accessed_menu_id=None)
-
-    # 5. Despacha a mensagem ao cliente via WhatsApp
     msg_id = dispatch_reply(
         client=client,
-        to=context.target_phone,
+        to=context.reply_to,
         response_payload=response_payload,
     )
     if msg_id:
-        save_bot_reply_log(
-            recipient_id=context.sender_phone,
-            content=response_payload["text"],
-            accessed_menu_id=None,
-        )
+        save_bot_reply_log(context, response_payload["text"])
+    update_session_activity(user_session, None)
+    session.commit()
 
 
-def handle_callback_button(client: WhatsApp, btn: CallbackButton) -> None:
+def handle_callback(
+    client: WhatsApp,
+    callback: CallbackButton | CallbackSelection,
+    session: Session,
+) -> None:
     """
-    Processa eventos de clique em botões de resposta rápida.
+    Processa cliques em botões de resposta rápida e seleções em listas interativas.
+
+    Payloads não reconhecidos (prefixo desconhecido ou identificador não numérico) são
+    ignorados e o usuário recebe o menu raiz. Como em handle_message, o evento inteiro
+    é uma única transação, confirmada só no fim.
 
     Args:
         client: Cliente WhatsApp do PyWa.
-        btn: Evento de clique contendo os dados do botão.
+        callback: Evento de clique contendo os dados e o título da opção escolhida.
+        session: Sessão do banco de dados que abrange o evento inteiro.
     """
-    user_id = btn.from_user.wa_id if btn.from_user else None
-    if not user_id:
-        logger.warning("[CALLBACK BUTTON] Recebido sem wa_id de usuário válido.")
+    context = extract_callback_context(callback, session)
+    if not context:
+        logger.warning("[CALLBACK] Evento recebido sem BSUID de usuário válido.")
         return
 
-    update_session_activity(wa_id=user_id)
-    payload = btn.data
-    logger.info(f"[CALLBACK BUTTON] De: {user_id} | Payload: '{payload}'")
+    user_session = get_or_create_session(session, context.user_id, context.wa_id)
 
+    payload = str(callback.data)
+    menu_id = parse_menu_id(payload)
+    selected_menu_id = menu_id if menu_id is not None and get_menu_by_id(session, menu_id) else None
+    save_user_log(context, menu_id=selected_menu_id)
+    logger.info(f"[CALLBACK] Usuário: {mask_user_id(context.user_id)} | Menu: {menu_id}")
+
+    current_menu_id = None
     if payload == ACTION_ASK_QUESTION:
-        send_root_menu(
-            client=client,
-            to=user_id,
-            intro_text="Nosso assistente está temporariamente indisponível. Escolha uma opção do menu:",
-        )
-        return
-
-    if payload == ACTION_ROOT:
-        send_root_menu(client, to=user_id, intro_text="Aqui está o menu principal:")
-        return
-
-    if payload.startswith(PREFIX_MENU):
-        menu_id = int(payload.removeprefix(PREFIX_MENU))
-        handle_menu_navigation(client, callback=btn, menu_id=menu_id)
-
-
-def handle_callback_selection(client: WhatsApp, sel: CallbackSelection) -> None:
-    """
-    Processa eventos de seleção em listas interativas (SectionList).
-
-    Args:
-        client: Cliente WhatsApp do PyWa.
-        sel: Evento de seleção contendo dados da linha clicada.
-    """
-    user_id = sel.from_user.wa_id if sel.from_user else None
-    if not user_id:
-        logger.warning("[CALLBACK SELECTION] Recebido sem wa_id de usuário válido.")
-        return
-
-    update_session_activity(wa_id=user_id)
-    payload = sel.data
-    logger.info(f"[CALLBACK SELECTION] De: {user_id} | Payload: '{payload}'")
-
-    if payload == ACTION_ASK_QUESTION:
-        send_root_menu(
-            client=client,
-            to=user_id,
-            intro_text="Nosso assistente está temporariamente indisponível. Escolha uma opção do menu:",
-        )
-        return
-
-    if payload == ACTION_ROOT:
-        send_root_menu(client, to=user_id, intro_text="Aqui está o menu principal:")
-        return
-
-    if payload.startswith(PREFIX_MENU):
-        menu_id = int(payload.removeprefix(PREFIX_MENU))
-        handle_menu_navigation(client, callback=sel, menu_id=menu_id)
+        send_root_menu(client, context, intro_text=MODEL_UNAVAILABLE_MESSAGE)
+    elif menu_id is not None:
+        current_menu_id = handle_menu_navigation(client, context, menu_id)
+    else:
+        send_root_menu(client, context)
+    update_session_activity(user_session, current_menu_id)
+    session.commit()
 
 
 def handle_status(_: WhatsApp, status: MessageStatus) -> None:
@@ -186,19 +181,80 @@ def handle_status(_: WhatsApp, status: MessageStatus) -> None:
     status_name = (
         status.status.value if hasattr(status.status, "value") else str(status.status)
     )
-    recipient = status.from_user.wa_id if status.from_user else "Desconhecido"
-    msg_id = status.id
+    recipient = (
+        mask_user_id(status.from_user.bsuid or status.from_user.wa_id)
+        if status.from_user
+        else "Desconhecido"
+    )
 
     if status.error:
         err = status.error
         logger.warning(
-            f"[STATUS UPDATE] ID: {msg_id} | Destino: {recipient} | Status: {status_name} | "
-            f"Erro {err.code}: {err.message} ({err.details})"
+            f"[STATUS UPDATE] Destino: {recipient} | Status: {status_name} | "
+            f"Erro {err.code}: {redact(f'{err.message} ({err.details})')}"
         )
     else:
-        logger.info(
-            f"[STATUS UPDATE] ID: {msg_id} | Destino: {recipient} | Status: {status_name}"
-        )
+        logger.info(f"[STATUS UPDATE] Destino: {recipient} | Status: {status_name}")
+
+
+def parse_menu_id(payload: str) -> int | None:
+    """
+    Extrai o identificador de menu de um payload de callback no formato 'menu:<id>'.
+
+    Args:
+        payload: Dados do botão ou da linha selecionada.
+
+    Returns:
+        Identificador numérico do menu ou None se o payload não for um menu válido.
+    """
+    if not payload.startswith(PREFIX_MENU):
+        return None
+    raw_id = payload.removeprefix(PREFIX_MENU)
+    if not (raw_id.isascii() and raw_id.isdigit()) or len(raw_id) > MAX_MENU_ID_DIGITS:
+        return None
+    return int(raw_id)
+
+
+def mask_user_id(value: str | None) -> str:
+    """
+    Mascara um identificador de usuário para uso seguro em logs.
+
+    Args:
+        value: BSUID, telefone ou None.
+
+    Returns:
+        '***' seguido dos últimos caracteres do identificador, ou apenas '***' se for curto ou vazio.
+    """
+    if not value or len(value) <= MASKED_ID_VISIBLE_CHARS:
+        return "***"
+    return f"***{value[-MASKED_ID_VISIBLE_CHARS:]}"
+
+
+def redact(text: str) -> str:
+    """
+    Mascara telefones e BSUIDs em textos de erro vindos da Meta antes de registrá-los em log.
+
+    Args:
+        text: Texto externo que pode citar o usuário.
+
+    Returns:
+        O texto com sequências de 8 ou mais dígitos e tokens no formato de BSUID trocados por '***'.
+    """
+    return PERSONAL_DATA_PATTERN.sub("***", text)
+
+
+def resolve_reply_target(user_id: str, wa_id: str | None) -> str:
+    """
+    Define o destinatário das respostas: o telefone normalizado quando existe, senão o BSUID.
+
+    Args:
+        user_id: BSUID do usuário.
+        wa_id: Telefone do usuário ou None quando ele usa apenas nome de usuário.
+
+    Returns:
+        Identificador aceito pela API da Meta como destino da mensagem.
+    """
+    return normalize_phone_number(wa_id) or user_id
 
 
 def normalize_phone_number(phone: str | None) -> str:
@@ -219,56 +275,90 @@ def normalize_phone_number(phone: str | None) -> str:
     return clean
 
 
-def extract_message_context(msg: Message) -> MessageContext | None:
+def _build_context(session: Session, user: User | None, text: str) -> MessageContext | None:
+    """
+    Normaliza o remetente de um evento no contexto usado pelo restante do fluxo.
+
+    Args:
+        session: Sessão do banco de dados do evento.
+        user: Remetente do evento recebido.
+        text: Texto digitado ou título da opção selecionada.
+
+    Returns:
+        Instância de MessageContext, ou None se o remetente não tiver BSUID.
+    """
+    if user is None or not user.bsuid:
+        return None
+
+    wa_id = user.wa_id or None
+    return MessageContext(
+        session=session,
+        user_id=user.bsuid,
+        wa_id=wa_id,
+        reply_to=resolve_reply_target(user.bsuid, wa_id),
+        user_name=user.name or "Usuário",
+        message_text=text,
+    )
+
+
+def extract_message_context(msg: Message, session: Session) -> MessageContext | None:
     """
     Extrai e normaliza os dados essenciais da mensagem recebida via WhatsApp.
 
     Args:
         msg: Mensagem bruta recebida do webhook.
+        session: Sessão do banco de dados do evento.
 
     Returns:
-        Instância de MessageContext com dados sanitizados ou None caso wa_id inexista.
+        Instância de MessageContext com dados sanitizados ou None caso o BSUID inexista.
     """
-    sender_phone = str(msg.from_user.wa_id or "")
-    if not sender_phone:
-        return None
+    return _build_context(session, msg.from_user, msg.text or "")
 
-    user_name = msg.from_user.name or "Usuário"
-    message_text = msg.text or ""
-    target_phone = normalize_phone_number(sender_phone)
 
-    return MessageContext(
-        sender_phone=sender_phone,
-        target_phone=target_phone,
-        user_name=user_name,
-        message_text=message_text,
+def extract_callback_context(
+    callback: CallbackButton | CallbackSelection,
+    session: Session,
+) -> MessageContext | None:
+    """
+    Extrai e normaliza os dados essenciais de um clique em botão ou linha de lista.
+
+    Args:
+        callback: Evento de clique recebido do webhook.
+        session: Sessão do banco de dados do evento.
+
+    Returns:
+        Instância de MessageContext cujo message_text é o título da opção, ou None sem BSUID.
+    """
+    return _build_context(session, callback.from_user, callback.title or "")
+
+
+def build_root_view(session: Session, intro_text: str | None = None) -> dict[str, Any]:
+    """
+    Monta a resposta do menu raiz: a mensagem da raiz e seus filhos diretos como opções.
+
+    Args:
+        session: Sessão ativa do banco de dados.
+        intro_text: Texto que substitui a mensagem da raiz (avisos e fallbacks).
+
+    Returns:
+        Dicionário com 'text' e 'buttons'; sem botões se não houver menu raiz configurado.
+    """
+    root = get_root_menu(session)
+    if root is None:
+        return {"text": NO_ROOT_MESSAGE}
+    return build_root_response_object(
+        menus=get_root_children(session),
+        intro_text=intro_text or root.message,
     )
 
 
-def identify_session_mode(sender_id: str) -> str:
-    """
-    Identifica o modo de atendimento ativo do usuário (Menu vs Conversacional via LLM).
-
-    Args:
-        sender_id: Identificador WhatsApp do remetente (wa_id).
-
-    Returns:
-        String indicando o modo ativo (SESSION_MODE_MENU ou SESSION_MODE_CONVERSATIONAL).
-    """
-    session = get_or_create_session(wa_id=sender_id)
-    return session.mode
-
-
-def build_mode_response(
-    mode: str,
-    context: MessageContext,
-) -> dict[str, Any]:
+def build_mode_response(session: Session, mode: str) -> dict[str, Any]:
     """
     Gera a carga de resposta correspondente ao modo de atendimento ativo do usuário.
 
     Args:
+        session: Sessão ativa do banco de dados.
         mode: Modo ativo identificado (SESSION_MODE_MENU ou SESSION_MODE_CONVERSATIONAL).
-        context: Contexto sanitizado contendo dados do remetente e mensagem.
 
     Returns:
         Dicionário contendo as chaves 'text' e opcionalmente 'buttons' para despacho.
@@ -276,18 +366,9 @@ def build_mode_response(
     if mode == SESSION_MODE_CONVERSATIONAL:
         # Modo conversacional desativado temporariamente (Ollama não conectado):
         # Dispara mensagem de indisponibilidade com as opções do menu raiz para recuperação.
-        root_menus = get_root_menus()
-        return build_root_response_object(
-            menus=root_menus,
-            intro_text="Nosso assistente está temporariamente indisponível. Escolha uma opção do menu:",
-        )
+        return build_root_view(session, intro_text=MODEL_UNAVAILABLE_MESSAGE)
 
-    # Modo padrão: Menu hierárquico
-    root_menus = get_root_menus()
-    return build_root_response_object(
-        menus=root_menus,
-        intro_text=f"Olá {context.user_name}! Escolha uma das opções abaixo:",
-    )
+    return build_root_view(session)
 
 
 def dispatch_reply(
@@ -300,7 +381,7 @@ def dispatch_reply(
 
     Args:
         client: Cliente WhatsApp do PyWa.
-        to: Número de telefone normalizado do destinatário.
+        to: Destinatário (telefone normalizado ou BSUID).
         response_payload: Carga de dados contendo 'text' e opcionalmente 'buttons'.
 
     Returns:
@@ -313,71 +394,79 @@ def dispatch_reply(
             text=response_payload["text"],
             buttons=buttons,
         )
-        logger.info(
-            f"[OUTBOUND SUCESSO] Para: {to} | Resposta: '{response_payload['text']}' | ID: {response_msg_id}"
-        )
+        logger.info(f"[OUTBOUND SUCESSO] Para: {mask_user_id(to)}")
         return str(response_msg_id)
     except Exception as error:
         logger.error(
-            f"[OUTBOUND FALHA] Erro ao despachar requisição para a Meta: {error}"
+            f"[OUTBOUND FALHA] Para: {mask_user_id(to)} | "
+            f"Erro ao despachar requisição para a Meta: {redact(str(error))}"
         )
         return None
 
 
 def handle_menu_navigation(
     client: WhatsApp,
-    callback: CallbackSelection | CallbackButton,
+    context: MessageContext,
     menu_id: int,
-) -> None:
+) -> int | None:
     """
     Processa a navegação hierárquica e renderiza o próximo nível de menus.
 
+    A raiz é renderizada como menu raiz; folhas oferecem "Voltar" apenas quando o pai não é a raiz.
+
     Args:
         client: Cliente WhatsApp do PyWa para despacho de mensagens.
-        callback: Evento de clique recebido (botão ou item de lista).
+        context: Contexto do usuário que selecionou o menu.
         menu_id: Identificador do menu selecionado.
-    """
-    user_id = callback.from_user.wa_id if callback.from_user else None
-    if not user_id:
-        logger.warning("[MENU NAV] Callback recebido sem wa_id de usuário válido.")
-        return
 
-    menu = get_menu_by_id(menu_id)
+    Returns:
+        Identificador do menu que ficou exibido ao usuário, ou None quando ele viu o menu raiz.
+    """
+    menu = get_menu_by_id(context.session, menu_id)
 
     # Proteção contra caso de borda: Menu foi excluído ou desativado no painel administrativo
     if not menu:
-        send_root_menu(
-            client=client,
-            to=user_id,
-            intro_text="Esse menu não está mais disponível. Aqui estão as opções principais:",
-        )
-        return
+        send_root_menu(client, context, intro_text=MENU_UNAVAILABLE_MESSAGE)
+        return None
 
-    submenus = get_submenus(parent_id=menu_id)
-    target_phone = normalize_phone_number(user_id)
+    root = get_root_menu(context.session)
+    if root is not None and root.id == menu_id:
+        send_root_menu(client, context)
+        return None
 
+    submenus = get_submenus(context.session, menu_id)
     if submenus:
         response = build_child_response_object(
             menus=submenus,
-            intro_text=f"{menu.name}\n\n{menu.message}",
+            intro_text=menu.message,
         )
-        msg_id = dispatch_reply(
-            client=client,
-            to=target_phone,
-            response_payload=response,
-        )
-        if msg_id:
-            save_bot_reply_log(
-                recipient_id=user_id,
-                content=response["text"],
-                accessed_menu_id=menu_id,
-            )
-        update_session_activity(wa_id=user_id, menu_id=menu_id)
-        return
+    else:
+        response = build_leaf_response_object(menu, root)
 
-    # Menu folha: exibe mensagem final e botões de retorno (anterior e início)
+    msg_id = dispatch_reply(
+        client=client,
+        to=context.reply_to,
+        response_payload=response,
+    )
+    if msg_id:
+        save_bot_reply_log(context, response["text"], menu_id=menu_id)
+    return menu_id
+
+
+def build_leaf_response_object(menu: Menu, root: Menu | None) -> dict[str, Any]:
+    """
+    Constrói o payload de um menu folha: a mensagem final e os botões de retorno.
+
+    Args:
+        menu: Menu folha a ser exibido.
+        root: Menu raiz atual, se houver.
+
+    Returns:
+        Dicionário com 'text' e 'buttons'; "Voltar" só existe se o pai não for a raiz.
+    """
     leaf_buttons: list[Button] = []
-    if menu.parent_id is not None:
+    parent_is_root = root is not None and menu.parent_id == root.id
+    if menu.parent_id is not None and not parent_is_root:
         leaf_buttons.append(
             Button(
                 title="Voltar"[:MAX_BUTTON_TITLE_LEN],
@@ -390,54 +479,33 @@ def handle_menu_navigation(
             callback_data=ACTION_ROOT,
         )
     )
-    leaf_text = f"{menu.message}\n\nDeseja realizar outra consulta?"
-    leaf_payload = {
-        "text": leaf_text,
+    return {
+        "text": f"{menu.message}\n\nDeseja realizar outra consulta?",
         "buttons": leaf_buttons,
     }
-    msg_id = dispatch_reply(
-        client=client,
-        to=target_phone,
-        response_payload=leaf_payload,
-    )
-    if msg_id:
-        save_bot_reply_log(
-            recipient_id=user_id,
-            content=leaf_text,
-            accessed_menu_id=menu_id,
-        )
-    update_session_activity(wa_id=user_id, menu_id=menu_id)
 
 
 def send_root_menu(
     client: WhatsApp,
-    to: str,
-    intro_text: str = "Olá! Escolha uma das opções abaixo:",
+    context: MessageContext,
+    intro_text: str | None = None,
 ) -> None:
     """
-    Envia o menu raiz interativo para o destinatário informado.
+    Envia o menu raiz interativo para o usuário do contexto informado.
 
     Args:
         client: Cliente PyWa configurado.
-        to: Número de telefone ou wa_id do destinatário.
-        intro_text: Texto introdutório da mensagem.
+        context: Contexto do usuário destinatário.
+        intro_text: Texto que substitui a mensagem da raiz (avisos e fallbacks).
     """
-    root_menus = get_root_menus()
-    response = build_root_response_object(menus=root_menus, intro_text=intro_text)
-    target_phone = normalize_phone_number(to)
-
+    response = build_root_view(context.session, intro_text)
     msg_id = dispatch_reply(
         client=client,
-        to=target_phone,
+        to=context.reply_to,
         response_payload=response,
     )
     if msg_id:
-        save_bot_reply_log(
-            recipient_id=to,
-            content=response["text"],
-            accessed_menu_id=None,
-        )
-    update_session_activity(wa_id=to, menu_id=None)
+        save_bot_reply_log(context, response["text"])
 
 
 def build_root_response_object(
@@ -533,6 +601,29 @@ def build_child_menu_buttons(menus: Sequence[Menu]) -> list[Button]:
     ]
 
 
+def limit_list_menus(menus: Sequence[Menu], reserved_rows: int) -> Sequence[Menu]:
+    """
+    Corta os menus que não cabem nas linhas de uma lista interativa do WhatsApp.
+
+    O cadastro de menus já impede excedentes; este corte evita que dados antigos façam a Meta
+    recusar a mensagem inteira.
+
+    Args:
+        menus: Menus candidatos a linhas da lista.
+        reserved_rows: Linhas fixas da lista que não vêm de menus (a pergunta ao modelo na raiz).
+
+    Returns:
+        Os primeiros menus que cabem, mantendo a ordem.
+    """
+    room = MAX_LIST_ROWS - reserved_rows
+    if len(menus) > room:
+        logger.warning(
+            f"[MENU] Lista com {len(menus) + reserved_rows} opções excede o limite do WhatsApp; "
+            f"exibindo {MAX_LIST_ROWS}."
+        )
+    return menus[:room]
+
+
 def build_root_menu_section_list(menus: Sequence[Menu]) -> SectionList:
     """
     Monta a lista de seções para o menu raiz com a opção de pergunta inclusa.
@@ -547,9 +638,8 @@ def build_root_menu_section_list(menus: Sequence[Menu]) -> SectionList:
         SectionRow(
             title=(m.selection_name or m.name)[:MAX_ROW_TITLE_LEN],
             callback_data=f"{PREFIX_MENU}{m.id}",
-            description=(m.name[:MAX_ROW_DESC_LEN] if m.name else None),
         )
-        for m in menus
+        for m in limit_list_menus(menus, reserved_rows=1)
     ]
     rows.append(
         SectionRow(
@@ -576,9 +666,8 @@ def build_child_menu_section_list(menus: Sequence[Menu]) -> SectionList:
         SectionRow(
             title=(m.selection_name or m.name)[:MAX_ROW_TITLE_LEN],
             callback_data=f"{PREFIX_MENU}{m.id}",
-            description=(m.name[:MAX_ROW_DESC_LEN] if m.name else None),
         )
-        for m in menus
+        for m in limit_list_menus(menus, reserved_rows=0)
     ]
     section = Section(title="Menu", rows=rows)
     return SectionList(button_title="Ver Opções", sections=[section])

@@ -66,6 +66,6 @@ def test_dispatch_reply_exception_returns_none_without_raising(caplog):
         result = dispatch_reply(client=client, to="5547998765432", response_payload=payload)
 
     assert result is None
-    assert "[OUTBOUND FALHA] Erro ao despachar requisição para a Meta: Meta API timeout error" in caplog.text
+    assert "Erro ao despachar requisição para a Meta: Meta API timeout error" in caplog.text
     client.send_message.assert_called_once()
 

@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import Literal
 from sqlmodel import Field
 
@@ -10,18 +9,18 @@ class ChatHistoryBase(TimestampModel):
     Estrutura base para o histórico de conversas do chatbot.
 
     Attributes:
-        sender_id: Identificador WhatsApp do usuário ou destinatário.
+        user_id: Identificador BSUID do usuário (chave estável, presente mesmo sem telefone).
+        wa_id: Telefone do usuário quando disponível (ausente para usuários com nome de usuário).
         role: Papel da mensagem ('user' para mensagens recebidas, 'bot' para respostas enviadas).
-        content: Conteúdo textual da mensagem.
-        acessed_menu: Identificador do menu acessado nessa mensagem, se houver.
-        datetime: Carimbo de data/hora em que a mensagem ocorreu.
+        content: Conteúdo textual da mensagem ou título da opção selecionada.
+        menu_id: Identificador do menu associado à mensagem, se houver (nulo se o menu for excluído).
     """
 
-    sender_id: str
+    user_id: str = Field(index=True)
+    wa_id: str | None = Field(default=None)
     role: str = Field(default="user")
     content: str
-    acessed_menu: int | None = Field(default=None, foreign_key="menus.id")
-    datetime: datetime
+    menu_id: int | None = Field(default=None, foreign_key="menus.id", ondelete="SET NULL")
 
 
 class ChatHistory(ChatHistoryBase, table=True):

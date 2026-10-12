@@ -8,5 +8,7 @@ memory/
 openspec/
 .coverage
 *.db
+*.db-shm
+*.db-wal
 mutants/
-
+.work/
