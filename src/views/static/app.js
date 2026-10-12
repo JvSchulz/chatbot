@@ -1,6 +1,6 @@
 /**
  * Comportamento do painel de administração: política de resposta do HTMX, região de alertas,
- * destaque do item ativo nas listas e alternância do menu raiz.
+ * destaque do item ativo nas listas, alternância do menu raiz e contador de caracteres dos campos.
  * Tudo fica neste arquivo para que a política de segurança de conteúdo dispense 'unsafe-inline'.
  */
 (function () {
@@ -17,6 +17,9 @@
     var SERVER_ERROR_STATUS = 500;
     // Erros com corpo HTML montado pelo servidor: aparecem dentro do painel ou formulário de origem.
     var PANE_ERROR_STATUSES = [400, 401, 422, 429];
+
+    // Campos que mostram "n/N" ao lado: o limite N vem do atributo maxlength que o servidor escreve.
+    var COUNTER_SELECTOR = "[data-counter]";
 
     function alertRegion() {
         return document.getElementById("page-alert");
@@ -97,9 +100,37 @@
         }
     }
 
+    function counterFor(field) {
+        var next = field.nextElementSibling;
+        if (next && next.classList.contains("char-counter")) {
+            return next;
+        }
+        var counter = document.createElement("small");
+        counter.className = "char-counter";
+        field.insertAdjacentElement("afterend", counter);
+        return counter;
+    }
+
+    function updateCounter(field) {
+        if (field.maxLength < 0) {
+            return;
+        }
+        counterFor(field).textContent = field.value.length + "/" + field.maxLength;
+    }
+
+    function updateAllCounters() {
+        document.querySelectorAll(COUNTER_SELECTOR).forEach(updateCounter);
+    }
+
     document.addEventListener("htmx:beforeRequest", clearAlert);
     document.addEventListener("htmx:beforeSwap", handleBeforeSwap);
     document.addEventListener("htmx:afterSwap", highlightActiveItem);
+    document.addEventListener("htmx:afterSwap", updateAllCounters);
+    document.addEventListener("input", function (event) {
+        if (event.target && event.target.matches && event.target.matches(COUNTER_SELECTOR)) {
+            updateCounter(event.target);
+        }
+    });
     document.addEventListener("htmx:sendError", function () {
         showAlert(CONNECTION_ERROR_MESSAGE);
     });
@@ -112,4 +143,5 @@
         }
     });
     document.addEventListener("DOMContentLoaded", highlightActiveItem);
+    document.addEventListener("DOMContentLoaded", updateAllCounters);
 })();

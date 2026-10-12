@@ -19,6 +19,7 @@ from src.services.menu_service import (
     create_menu,
     update_menu,
     delete_menu,
+    MENU_TEXT_LIMITS,
     MenuData,
 )
 
@@ -28,6 +29,10 @@ router = APIRouter(
     dependencies=[Depends(get_current_admin)],
 )
 templates = config.templates
+
+MENU_CREATED_MESSAGE = "Menu criado com sucesso."
+MENU_UPDATED_MESSAGE = "Menu atualizado com sucesso."
+MENU_DELETED_MESSAGE = "Menu excluído com sucesso."
 
 
 @router.get("", response_class=HTMLResponse)
@@ -116,7 +121,7 @@ def _card_context(session: Session, menu: Menu | None, is_current_root: bool | N
             enquanto não existir nenhuma.
 
     Returns:
-        Dicionário com as seis chaves que o template do card exige.
+        Dicionário com as sete chaves que o template do card exige.
     """
     root_menu = get_root_menu(session)
     has_root = root_menu is not None
@@ -129,6 +134,7 @@ def _card_context(session: Session, menu: Menu | None, is_current_root: bool | N
         "is_current_root": is_current_root,
         "can_toggle_root": is_root_toggle_allowed(has_root, is_current_root),
         "valid_parents": get_valid_parent_menus(session, exclude_id=menu.id if menu else None),
+        "limits": MENU_TEXT_LIMITS,
     }
 
 
@@ -138,8 +144,9 @@ def _card_response(request: Request, context: dict[str, Any], status_code: int =
 
     Args:
         request: Objeto da requisição HTTP.
-        context: Contexto montado por _card_context, acrescido das chaves opcionais 'error' e
-            'draft' (valores enviados no formulário, exibidos de volta quando a validação falha).
+        context: Contexto montado por _card_context, acrescido das chaves opcionais 'error',
+            'success' (confirmação exibida no mesmo espaço dos erros) e 'draft' (valores enviados
+            no formulário, exibidos de volta quando a validação falha).
         status_code: Status HTTP da resposta.
 
     Returns:
@@ -227,7 +234,7 @@ def menu_create_submit(
         menu_data: Dados estruturados do novo menu.
 
     Returns:
-        Card do menu recém-criado ou erro 422 em caso de violação de regras.
+        Card do menu recém-criado com a confirmação, ou erro 422 em caso de violação de regras.
     """
     try:
         new_menu = create_menu(session, menu_data)
@@ -237,7 +244,8 @@ def menu_create_submit(
         return _card_response(
             request, {**context, "draft": menu_data, "error": str(exc)}, status.HTTP_422_UNPROCESSABLE_ENTITY
         )
-    return _reload_menu_list(_card_response(request, _card_context(session, new_menu)))
+    context = {**_card_context(session, new_menu), "success": MENU_CREATED_MESSAGE}
+    return _reload_menu_list(_card_response(request, context))
 
 
 @router.post("/{menu_id}", response_class=HTMLResponse)
@@ -257,7 +265,7 @@ def menu_update_submit(
         menu_data: Dados estruturados do formulário.
 
     Returns:
-        Card atualizado ou alerta de erro 422 em caso de ciclo ou violação de raiz.
+        Card atualizado com a confirmação, ou alerta de erro 422 em caso de ciclo ou violação de raiz.
     """
     try:
         updated_menu = update_menu(session, menu_id, menu_data)
@@ -266,7 +274,8 @@ def menu_update_submit(
         return _card_response(
             request, {**context, "draft": menu_data, "error": str(exc)}, status.HTTP_422_UNPROCESSABLE_ENTITY
         )
-    return _reload_menu_list(_card_response(request, _card_context(session, updated_menu)))
+    context = {**_card_context(session, updated_menu), "success": MENU_UPDATED_MESSAGE}
+    return _reload_menu_list(_card_response(request, context))
 
 
 @router.delete("/{menu_id}", response_class=HTMLResponse)
@@ -284,11 +293,12 @@ def menu_delete_submit(
         session: Sessão ativa do banco de dados.
 
     Returns:
-        Card em branco se removido com sucesso ou alerta 400 se bloqueado por submenus.
+        Card em branco com a confirmação se removido, ou alerta 400 se bloqueado por submenus.
     """
     try:
         delete_menu(session, menu_id)
     except ValueError as exc:
         context = _card_context(session, get_menu_by_id(session, menu_id))
         return _card_response(request, {**context, "error": str(exc)}, status.HTTP_400_BAD_REQUEST)
-    return _reload_menu_list(menu_new_card(request, session))
+    context = {**_card_context(session, None), "success": MENU_DELETED_MESSAGE}
+    return _reload_menu_list(_card_response(request, context))

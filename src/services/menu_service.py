@@ -26,6 +26,9 @@ WHATSAPP_BODY_LIMIT = 1024
 MAX_SELECTION_NAME_LEN = 20
 MAX_MESSAGE_LEN = WHATSAPP_BODY_LIMIT - len(LEAF_SUFFIX)
 
+# Limites entregues aos templates do formulário, que os usam em maxlength e no contador.
+MENU_TEXT_LIMITS = {"selection_name": MAX_SELECTION_NAME_LEN, "message": MAX_MESSAGE_LEN}
+
 SELECTION_NAME_LABEL = "Texto de seleção"
 MESSAGE_LABEL = "Mensagem"
 
@@ -51,6 +54,10 @@ def _clean_menu_data(data: MenuData) -> MenuData:
     Remove os espaços das pontas dos campos de texto do menu, exige que nenhum fique vazio e
     confere os limites de tamanho do texto de seleção e da mensagem.
 
+    O navegador envia quebras de linha como CRLF, mas conta e exibe cada quebra como um só
+    caractere; a mensagem é normalizada para LF para que o contador do formulário e o limite
+    do servidor concordem.
+
     Args:
         data: Dados de menu recebidos do formulário.
 
@@ -65,7 +72,7 @@ def _clean_menu_data(data: MenuData) -> MenuData:
         data,
         name=data.name.strip(),
         selection_name=data.selection_name.strip(),
-        message=data.message.strip(),
+        message=data.message.replace("\r\n", "\n").strip(),
     )
     if not (cleaned.name and cleaned.selection_name and cleaned.message):
         raise ValueError(MENU_FIELDS_REQUIRED_MESSAGE)
@@ -258,7 +265,7 @@ def build_menu_split_view_context(
         selected_id: Identificador opcional do menu a ser exibido selecionado.
 
     Returns:
-        Dicionário com menus, menu selecionado, menu raiz e flags de validação de raiz.
+        Dicionário com menus, menu selecionado, menu raiz, flags de validação de raiz e limites de texto.
     """
     all_menus = get_all_menus(session)
     root_menu = get_root_menu(session)
@@ -282,6 +289,7 @@ def build_menu_split_view_context(
         "is_current_root": is_current_root,
         "can_toggle_root": can_toggle_root,
         "valid_parents": valid_parents,
+        "limits": MENU_TEXT_LIMITS,
     }
 
 

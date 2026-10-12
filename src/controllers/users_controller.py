@@ -23,6 +23,10 @@ router = APIRouter(
 )
 templates = config.templates
 
+USER_CREATED_MESSAGE = "Usuário criado com sucesso."
+USER_UPDATED_MESSAGE = "Usuário atualizado com sucesso."
+USER_DELETED_MESSAGE = "Usuário excluído com sucesso."
+
 
 @router.get("", response_class=HTMLResponse)
 def user_split_view(
@@ -151,14 +155,14 @@ def user_create_submit(
         user_data: Dados estruturados do novo usuário.
 
     Returns:
-        Card do usuário criado ou alerta de erro caso o login já esteja em uso.
+        Card do usuário criado com a confirmação, ou alerta de erro caso o login já esteja em uso.
     """
     try:
         new_user = create_user(session, user_data)
         return templates.TemplateResponse(
             request=request,
             name="partials/_user_card.html",
-            context={"user": new_user},
+            context={"user": new_user, "success": USER_CREATED_MESSAGE},
             headers={"HX-Trigger": "userListChanged"},
         )
     except ValueError as exc:
@@ -187,14 +191,14 @@ def user_update_submit(
         user_data: Dados estruturados do formulário.
 
     Returns:
-        Card do usuário atualizado ou mensagem de erro 400.
+        Card do usuário atualizado com a confirmação, ou mensagem de erro 400.
     """
     try:
         updated_user = update_user(session, user_id, user_data)
         return templates.TemplateResponse(
             request=request,
             name="partials/_user_card.html",
-            context={"user": updated_user},
+            context={"user": updated_user, "success": USER_UPDATED_MESSAGE},
             headers={"HX-Trigger": "userListChanged"},
         )
     except ValueError as exc:
@@ -224,14 +228,14 @@ def user_delete_submit(
         current_user: Usuário administrador autenticado executando a exclusão.
 
     Returns:
-        Card em branco se removido com sucesso ou alerta 400 se autoexclusão for bloqueada.
+        Card em branco com a confirmação se removido, ou alerta 400 se autoexclusão for bloqueada.
     """
     try:
         delete_user(session, target_user_id=user_id, current_user_id=current_user.id)
         return templates.TemplateResponse(
             request=request,
             name="partials/_user_card.html",
-            context={"user": None},
+            context={"user": None, "success": USER_DELETED_MESSAGE},
             headers={"HX-Trigger": "userListChanged"},
         )
     except ValueError as exc:

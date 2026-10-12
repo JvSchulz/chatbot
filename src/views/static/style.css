@@ -237,6 +237,14 @@ body {
     color: var(--text-secondary);
 }
 
+.char-counter {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.8rem;
+    text-align: right;
+    color: var(--text-secondary);
+}
+
 .form-actions {
     display: flex;
     gap: 0.75rem;
@@ -284,6 +292,12 @@ body {
     background-color: #fee2e2;
     border: 1px solid #ef4444;
     color: #b91c1c;
+}
+
+.alert-success {
+    background-color: #dcfce7;
+    border: 1px solid #22c55e;
+    color: #166534;
 }
 
 .alert-prominent {
