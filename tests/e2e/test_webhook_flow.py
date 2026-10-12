@@ -92,7 +92,7 @@ def test_text_lists_the_root_children_and_the_ask_option(
     assert (bot_row.role, bot_row.content) == ("bot", ROOT_MESSAGE)
 
 
-def test_button_to_a_submenu_lists_its_children_without_the_ask_option(
+def test_button_to_a_submenu_lists_its_children_then_back_without_the_ask_option(
     client: TestClient, session: Session, outbound: list[dict], webhook_body, tree
 ):
     body = webhook_body("button", f"menu:{tree['grad'].id}", "554798765432", "BR.1000000000006", "Grad")
@@ -100,7 +100,10 @@ def test_button_to_a_submenu_lists_its_children_without_the_ask_option(
     assert _post(client, body) == 200
 
     assert outbound[0]["text"] == "Cursos de Graduação"
-    assert [b.callback_data for b in outbound[0]["buttons"]] == [f"menu:{tree['matriculation'].id}"]
+    assert [b.callback_data for b in outbound[0]["buttons"]] == [
+        f"menu:{tree['matriculation'].id}",
+        f"menu:{tree['root'].id}",
+    ]
     click, reply = _rows(session)
     assert (click.role, click.content, click.menu_id) == ("user", "Grad", tree["grad"].id)
     assert (reply.role, reply.menu_id) == ("bot", tree["grad"].id)
@@ -121,14 +124,58 @@ def test_list_selection_of_a_leaf_offers_back_and_start(
     assert _rows(session)[0].menu_id == tree["docs"].id
 
 
-def test_leaf_directly_under_the_root_offers_only_back_to_start(
+def test_leaf_directly_under_the_root_offers_back_to_the_root_and_back_to_start(
     client: TestClient, session: Session, outbound: list[dict], webhook_body, tree
 ):
     body = webhook_body("button", f"menu:{tree['office'].id}", "554798765432", "BR.1000000000006", "Sec")
 
     assert _post(client, body) == 200
 
-    assert [b.callback_data for b in outbound[0]["buttons"]] == [ACTION_ROOT]
+    assert [(b.title, b.callback_data) for b in outbound[0]["buttons"]] == [
+        ("Voltar", f"menu:{tree['root'].id}"),
+        ("Voltar ao início", ACTION_ROOT),
+    ]
+
+
+def test_submenu_with_three_children_is_answered_with_a_list_and_a_navigation_section(
+    client: TestClient, session: Session, outbound: list[dict], webhook_body, tree
+):
+    for name in ("Rematrícula", "Trancamento"):
+        session.add(Menu(name=name, selection_name=name, message=name, parent_id=tree["grad"].id))
+    session.commit()
+    body = webhook_body("button", f"menu:{tree['grad'].id}", "554798765432", "BR.1000000000006", "Grad")
+
+    assert _post(client, body) == 200
+
+    sent_list = outbound[0]["buttons"]
+    assert isinstance(sent_list, SectionList)
+    menu_section, navigation_section = list(sent_list.sections)
+    assert (menu_section.title, navigation_section.title) == ("Menu", "Navegação")
+    assert [row.title for row in menu_section.rows] == ["Matr", "Rematrícula", "Trancamento"]
+    assert [(row.title, row.callback_data) for row in navigation_section.rows] == [
+        ("Voltar", f"menu:{tree['root'].id}")
+    ]
+
+
+def test_back_from_depth_one_sends_the_root_menu(
+    client: TestClient, session: Session, outbound: list[dict], webhook_body, tree
+):
+    body = webhook_body("button", f"menu:{tree['root'].id}", "554798765432", "BR.1000000000006", "Voltar")
+
+    assert _post(client, body) == 200
+
+    assert outbound[0]["text"] == ROOT_MESSAGE
+    assert outbound[0]["buttons"][-1].callback_data == ACTION_ASK_QUESTION
+
+
+def test_back_from_depth_two_sends_the_parent_submenu(
+    client: TestClient, session: Session, outbound: list[dict], webhook_body, tree
+):
+    body = webhook_body("button", f"menu:{tree['grad'].id}", "554798765432", "BR.1000000000006", "Voltar")
+
+    assert _post(client, body) == 200
+
+    assert outbound[0]["text"] == "Cursos de Graduação"
 
 
 def test_malformed_payload_returns_the_root_menu(

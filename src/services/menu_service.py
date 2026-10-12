@@ -8,12 +8,26 @@ from src.models.menu_model import Menu
 
 MENU_FIELDS_REQUIRED_MESSAGE = "Preencha nome, texto de seleção e mensagem."
 
-# Uma lista interativa do WhatsApp aceita no máximo 10 linhas; no menu raiz uma delas é
-# reservada para "Fazer uma pergunta".
+# Uma lista interativa do WhatsApp aceita no máximo 10 linhas; uma delas é sempre reservada
+# ("Fazer uma pergunta" na raiz, "Voltar" nos demais menus), então todo pai comporta 9 filhos.
 WHATSAPP_LIST_LIMIT = 10
-ROOT_CHILDREN_LIMIT = WHATSAPP_LIST_LIMIT - 1
-WHATSAPP_LIST_LIMIT_MESSAGE = f"O WhatsApp permite no máximo {WHATSAPP_LIST_LIMIT} opções por lista."
+MENU_CHILDREN_LIMIT = WHATSAPP_LIST_LIMIT - 1
+MENU_CHILDREN_LIMIT_MESSAGE = (
+    f"Este menu já tem o máximo de {MENU_CHILDREN_LIMIT} opções permitido pelo WhatsApp."
+)
 
+# Sufixo que o bot acrescenta à mensagem de uma folha; o corpo interativo da Meta aceita 1024
+# caracteres, então a mensagem cadastrada precisa deixar espaço para ele.
+LEAF_SUFFIX = "\n\nDeseja realizar outra consulta?"
+WHATSAPP_BODY_LIMIT = 1024
+
+# O título de um botão de resposta rápida (o limite mais estrito em que o texto de seleção aparece)
+# aceita 20 caracteres.
+MAX_SELECTION_NAME_LEN = 20
+MAX_MESSAGE_LEN = WHATSAPP_BODY_LIMIT - len(LEAF_SUFFIX)
+
+SELECTION_NAME_LABEL = "Texto de seleção"
+MESSAGE_LABEL = "Mensagem"
 
 # Sequências de dígitos maiores que isto são cortadas na chave de ordenação: o Python recusa
 # converter números gigantes e a lista de menus não pode quebrar por causa de um nome.
@@ -34,7 +48,8 @@ class MenuData:
 
 def _clean_menu_data(data: MenuData) -> MenuData:
     """
-    Remove os espaços das pontas dos campos de texto do menu e exige que nenhum fique vazio.
+    Remove os espaços das pontas dos campos de texto do menu, exige que nenhum fique vazio e
+    confere os limites de tamanho do texto de seleção e da mensagem.
 
     Args:
         data: Dados de menu recebidos do formulário.
@@ -43,7 +58,8 @@ def _clean_menu_data(data: MenuData) -> MenuData:
         Cópia dos dados com nome, texto de seleção e mensagem sem espaços nas pontas.
 
     Raises:
-        ValueError: Se algum dos três campos estiver vazio ou contiver apenas espaços.
+        ValueError: Se algum dos três campos estiver vazio ou contiver apenas espaços, ou se o
+            texto de seleção ou a mensagem passar do limite de caracteres do WhatsApp.
     """
     cleaned = replace(
         data,
@@ -53,7 +69,25 @@ def _clean_menu_data(data: MenuData) -> MenuData:
     )
     if not (cleaned.name and cleaned.selection_name and cleaned.message):
         raise ValueError(MENU_FIELDS_REQUIRED_MESSAGE)
+    _ensure_within_limit(SELECTION_NAME_LABEL, cleaned.selection_name, MAX_SELECTION_NAME_LEN)
+    _ensure_within_limit(MESSAGE_LABEL, cleaned.message, MAX_MESSAGE_LEN)
     return cleaned
+
+
+def _ensure_within_limit(label: str, text: str, limit: int) -> None:
+    """
+    Garante que um texto enviado ao WhatsApp não passa do limite de caracteres da Meta.
+
+    Args:
+        label: Nome do campo no formulário, usado na mensagem de erro.
+        text: Texto já sem espaços nas pontas.
+        limit: Máximo de caracteres permitido.
+
+    Raises:
+        ValueError: Se o texto tiver mais caracteres que o limite.
+    """
+    if len(text) > limit:
+        raise ValueError(f"{label} pode ter no máximo {limit} caracteres.")
 
 
 def menu_sort_key(text: str) -> tuple[tuple[int, int | str], ...]:
@@ -278,15 +312,14 @@ def _ensure_parent_has_room(session: Session, parent_id: int) -> None:
         parent_id: Identificador do menu que receberá o filho.
 
     Raises:
-        ValueError: Se o pai já tem o máximo de filhos (9 para a raiz, 10 para os demais).
+        ValueError: Se o pai já tem o máximo de filhos (9, uma linha fica reservada à navegação).
     """
     parent = session.get(Menu, parent_id)
     if parent is None:
         return
-    limit = ROOT_CHILDREN_LIMIT if parent.parent_id is None else WHATSAPP_LIST_LIMIT
     count_children = select(func.count()).select_from(Menu).where(Menu.parent_id == parent_id)
-    if session.exec(count_children).one() >= limit:
-        raise ValueError(WHATSAPP_LIST_LIMIT_MESSAGE)
+    if session.exec(count_children).one() >= MENU_CHILDREN_LIMIT:
+        raise ValueError(MENU_CHILDREN_LIMIT_MESSAGE)
 
 
 def _second_root_message(existing_root: Menu) -> str:
