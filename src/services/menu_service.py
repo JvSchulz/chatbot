@@ -54,6 +54,10 @@ def _clean_menu_data(data: MenuData) -> MenuData:
     Remove os espaços das pontas dos campos de texto do menu, exige que nenhum fique vazio e
     confere os limites de tamanho do texto de seleção e da mensagem.
 
+    O texto de seleção tem todas as sequências de espaços em branco (inclusive quebras de linha
+    e tabulações) colapsadas em um único espaço antes da conferência do limite, para que nada
+    de quebra chegue ao título do botão ou da linha no WhatsApp e o limite conte o texto exibido.
+
     O navegador envia quebras de linha como CRLF, mas conta e exibe cada quebra como um só
     caractere; a mensagem é normalizada para LF para que o contador do formulário e o limite
     do servidor concordem.
@@ -62,7 +66,8 @@ def _clean_menu_data(data: MenuData) -> MenuData:
         data: Dados de menu recebidos do formulário.
 
     Returns:
-        Cópia dos dados com nome, texto de seleção e mensagem sem espaços nas pontas.
+        Cópia dos dados com nome, texto de seleção e mensagem sem espaços nas pontas; o texto de
+        seleção também sem espaços repetidos ou quebras no meio.
 
     Raises:
         ValueError: Se algum dos três campos estiver vazio ou contiver apenas espaços, ou se o
@@ -71,7 +76,7 @@ def _clean_menu_data(data: MenuData) -> MenuData:
     cleaned = replace(
         data,
         name=data.name.strip(),
-        selection_name=data.selection_name.strip(),
+        selection_name=" ".join(data.selection_name.split()),
         message=data.message.replace("\r\n", "\n").strip(),
     )
     if not (cleaned.name and cleaned.selection_name and cleaned.message):

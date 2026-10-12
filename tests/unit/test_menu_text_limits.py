@@ -70,6 +70,26 @@ def test_trimming_does_not_hide_an_excess_character(session: Session):
         create_menu(session, valid_data(selection_name=" " + "x" * 21 + " "))
 
 
+def test_whitespace_runs_in_the_selection_name_collapse_to_single_spaces(session: Session):
+    menu = create_menu(session, valid_data(selection_name="  a\nb\t\tc  "))
+
+    assert menu.selection_name == "a b c"
+
+
+def test_the_selection_name_limit_counts_the_collapsed_text(session: Session):
+    menu = create_menu(session, valid_data(selection_name="abcdefghij  klmnopqrs"))
+
+    assert menu.selection_name == "abcdefghij klmnopqrs"
+
+
+def test_a_selection_name_that_is_over_the_limit_after_collapsing_is_rejected(session: Session):
+    with pytest.raises(ValueError) as error:
+        create_menu(session, valid_data(selection_name="abcdefghij  klmnopqrst"))
+
+    assert str(error.value) == "Texto de seleção pode ter no máximo 20 caracteres."
+    assert session.exec(select(Menu)).all() == []
+
+
 def test_the_internal_name_has_no_limit(session: Session):
     menu = create_menu(session, valid_data(name="n" * 500))
 

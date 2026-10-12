@@ -77,7 +77,7 @@ def test_update_menu_trims_surrounding_whitespace(session: Session):
     assert (updated.name, updated.selection_name, updated.message) == ("Novo", "Nova", "Texto")
 
 
-def test_inner_whitespace_and_single_characters_are_kept(session: Session):
+def test_single_characters_are_kept_and_selection_name_inner_spaces_collapse(session: Session):
     menu = create_menu(session, data=valid_data(name="a", selection_name="b  c", message="d\n\ne"))
 
-    assert (menu.name, menu.selection_name, menu.message) == ("a", "b  c", "d\n\ne")
+    assert (menu.name, menu.selection_name, menu.message) == ("a", "b c", "d\n\ne")
