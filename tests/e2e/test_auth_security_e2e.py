@@ -45,7 +45,7 @@ def test_auth_security_e2e_full_lifecycle(session: Session):
     # 1b. Seguir o redirecionamento carrega a página de login com status 200
     res_unauth_followed = client.get("/")
     assert res_unauth_followed.status_code == 200
-    assert "Login Administrativo" in res_unauth_followed.text
+    assert "Login Painel Administrativo" in res_unauth_followed.text
 
     # 1c. Requisição programática de API (Accept: application/json) retém status 401
     res_api_unauth = client.get("/menus", headers={"Accept": "application/json"})
@@ -115,7 +115,7 @@ def test_auth_security_e2e_full_lifecycle(session: Session):
 
     res_post_logout_followed = client.get("/menus")
     assert res_post_logout_followed.status_code == 200
-    assert "Login Administrativo" in res_post_logout_followed.text
+    assert "Login Painel Administrativo" in res_post_logout_followed.text
 
 
 def test_auth_rate_limiting_on_login():

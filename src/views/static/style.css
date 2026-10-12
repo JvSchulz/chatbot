@@ -542,29 +542,9 @@ body {
     text-align: center;
 }
 
-.login-logo {
-    margin: 0 auto 1rem;
-    width: 44px;
-    height: 44px;
-    font-size: 1.2rem;
-    background-color: var(--primary-color);
-    border-radius: var(--radius);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    font-weight: bold;
-}
-
 .login-title {
     font-size: 1.4rem;
     font-weight: 700;
-}
-
-.login-subtitle {
-    margin-top: 0.25rem;
-    font-size: 0.9rem;
-    color: var(--text-secondary);
 }
 
 .login-error {

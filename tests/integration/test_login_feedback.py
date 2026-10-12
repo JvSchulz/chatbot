@@ -32,7 +32,7 @@ def test_browser_wrong_password_returns_the_login_page_with_the_message():
     response = TestClient(app).post("/login", data=WRONG_CREDENTIALS)
 
     assert response.status_code == 401
-    assert "Login Administrativo" in response.text
+    assert "Login Painel Administrativo" in response.text
     assert INVALID_CREDENTIALS_MESSAGE in response.text
 
 
@@ -54,7 +54,7 @@ def test_browser_rate_limited_login_returns_the_login_page_with_the_message():
     response = client.post("/login", data=WRONG_CREDENTIALS)
 
     assert response.status_code == 429
-    assert "Login Administrativo" in response.text
+    assert "Login Painel Administrativo" in response.text
     assert RATE_LIMIT_MESSAGE in response.text
 
 
