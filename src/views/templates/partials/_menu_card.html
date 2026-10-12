@@ -23,7 +23,9 @@
 
     <div id="menu-error">
         {% if error %}
-        <div class="alert alert-danger">{{ error }}</div>
+        <div class="alert alert-danger" role="alert">{{ error }}</div>
+        {% elif success %}
+        <div class="alert alert-success" role="status">{{ success }}</div>
         {% endif %}
     </div>
 
@@ -50,6 +52,8 @@
                    class="form-input"
                    placeholder="Ex: 1 - Falar com Atendente"
                    value="{% if source %}{{ source.selection_name }}{% endif %}"
+                   maxlength="{{ limits.selection_name }}"
+                   data-counter
                    required>
         </div>
 
@@ -60,6 +64,8 @@
                       class="form-textarea"
                       rows="4"
                       placeholder="Mensagem exibida ao selecionar este item"
+                      maxlength="{{ limits.message }}"
+                      data-counter
                       required>{% if source %}{{ source.message }}{% endif %}</textarea>
         </div>
 

@@ -31,8 +31,19 @@ def _context(session: Session, wa_id: str | None = "554798765432") -> MessageCon
     )
 
 
-def _add(session: Session, name: str, parent_id: int | None = None, message: str | None = None) -> Menu:
-    menu = Menu(name=name, selection_name=name, message=message or f"Mensagem {name}", parent_id=parent_id)
+def _add(
+    session: Session,
+    name: str,
+    parent_id: int | None = None,
+    message: str | None = None,
+    selection_name: str | None = None,
+) -> Menu:
+    menu = Menu(
+        name=name,
+        selection_name=selection_name or name,
+        message=message or f"Mensagem {name}",
+        parent_id=parent_id,
+    )
     session.add(menu)
     session.commit()
     session.refresh(menu)
@@ -122,13 +133,11 @@ def test_navigating_to_the_root_id_renders_the_root_view(session: Session, mock_
     assert [b.title for b in sent["buttons"]][-1] == "Fazer Pergunta"
 
 
-def test_navigating_to_a_submenu_lists_its_children_without_the_ask_option(
-    session: Session, mock_wa_client: MagicMock
-):
+def test_submenu_with_two_children_sends_them_then_back_as_buttons(session: Session, mock_wa_client: MagicMock):
     root = _root_with_children(session, 0)
     parent = _add(session, "Cursos", parent_id=root.id, message="Nossos cursos")
-    _add(session, "Engenharia", parent_id=parent.id)
-    _add(session, "Direito", parent_id=parent.id)
+    engineering = _add(session, "Engenharia", parent_id=parent.id)
+    law = _add(session, "Direito", parent_id=parent.id)
     assert parent.id is not None
 
     handle_menu_navigation(mock_wa_client, _context(session), parent.id)
@@ -136,7 +145,88 @@ def test_navigating_to_a_submenu_lists_its_children_without_the_ask_option(
     sent = _sent(mock_wa_client)
     assert sent["to"] == "554798765432"
     assert sent["text"] == "Nossos cursos"
-    assert [b.title for b in sent["buttons"]] == ["Engenharia", "Direito"]
+    assert [(b.title, b.callback_data) for b in sent["buttons"]] == [
+        ("Direito", f"menu:{law.id}"),
+        ("Engenharia", f"menu:{engineering.id}"),
+        ("Voltar", f"menu:{root.id}"),
+    ]
+
+
+def test_submenu_with_three_children_sends_a_list_with_a_navigation_section(
+    session: Session, mock_wa_client: MagicMock
+):
+    root = _root_with_children(session, 0)
+    parent = _add(session, "Cursos", parent_id=root.id, message="Nossos cursos")
+    for name in ("Engenharia", "Direito", "Artes"):
+        _add(session, name, parent_id=parent.id)
+    assert parent.id is not None
+
+    handle_menu_navigation(mock_wa_client, _context(session), parent.id)
+
+    sent = _sent(mock_wa_client)
+    assert sent["text"] == "Nossos cursos"
+    assert isinstance(sent["buttons"], SectionList)
+    sections = list(sent["buttons"].sections)
+    assert [section.title for section in sections] == ["Menu", "Navegação"]
+    assert [row.title for row in sections[0].rows] == ["Artes", "Direito", "Engenharia"]
+    assert [(row.title, row.callback_data) for row in sections[1].rows] == [("Voltar", f"menu:{root.id}")]
+    all_callbacks = [row.callback_data for section in sections for row in section.rows]
+    assert ACTION_ASK_QUESTION not in all_callbacks and ACTION_ROOT not in all_callbacks
+
+
+def test_submenu_at_depth_two_goes_back_to_its_own_parent(session: Session, mock_wa_client: MagicMock):
+    root = _root_with_children(session, 0)
+    parent = _add(session, "Cursos", parent_id=root.id)
+    child = _add(session, "Engenharia", parent_id=parent.id)
+    grandchild = _add(session, "Civil", parent_id=child.id)
+    assert child.id is not None
+
+    handle_menu_navigation(mock_wa_client, _context(session), child.id)
+
+    buttons = _sent(mock_wa_client)["buttons"]
+    assert [(b.title, b.callback_data) for b in buttons] == [
+        ("Civil", f"menu:{grandchild.id}"),
+        ("Voltar", f"menu:{parent.id}"),
+    ]
+
+
+def test_submenu_over_the_limit_is_truncated_with_back_kept_and_a_warning(
+    session: Session, mock_wa_client: MagicMock, caplog
+):
+    root = _root_with_children(session, 0)
+    parent = _add(session, "Cursos", parent_id=root.id)
+    for index in range(10):
+        _add(session, f"Curso {index:02d}", parent_id=parent.id)
+    assert parent.id is not None
+
+    with caplog.at_level("WARNING", logger="Chatbot"):
+        handle_menu_navigation(mock_wa_client, _context(session), parent.id)
+
+    sections = list(_sent(mock_wa_client)["buttons"].sections)
+    assert [row.title for row in sections[0].rows] == [f"Curso {index:02d}" for index in range(9)]
+    assert [row.callback_data for row in sections[1].rows] == [f"menu:{root.id}"]
+    assert "[MENU] Lista com 11 opções excede o limite do WhatsApp; exibindo 10." in caplog.messages
+
+
+def test_root_options_are_sent_in_natural_order(session: Session, mock_wa_client: MagicMock):
+    root = _add(session, "menu_inicio", message=ROOT_MESSAGE)
+    for selection_name in ("10 - X", "Ácido", "2 - Y", "abacate"):
+        _add(session, selection_name.lower(), parent_id=root.id, selection_name=selection_name)
+
+    send_root_menu(mock_wa_client, _context(session))
+
+    rows = list(list(_sent(mock_wa_client)["buttons"].sections)[0].rows)
+    assert [row.title for row in rows] == ["2 - Y", "10 - X", "abacate", "Ácido", "Fazer uma pergunta"]
+
+
+def test_root_children_created_out_of_order_are_sent_in_order(session: Session, mock_wa_client: MagicMock):
+    root = _add(session, "menu_inicio", message=ROOT_MESSAGE)
+    _add(session, "tutoria", parent_id=root.id, selection_name="2-Tutoria")
+    _add(session, "monitoria", parent_id=root.id, selection_name="1-Monitoria")
+
+    send_root_menu(mock_wa_client, _context(session))
+
+    assert [b.title for b in _sent(mock_wa_client)["buttons"]] == ["1-Monitoria", "2-Tutoria", "Fazer Pergunta"]
 
 
 def test_submenu_reply_never_carries_the_internal_menu_name(session: Session, mock_wa_client: MagicMock):
@@ -181,7 +271,9 @@ def test_leaf_whose_parent_is_a_submenu_offers_both_back_buttons(session: Sessio
     ]
 
 
-def test_leaf_whose_parent_is_the_root_offers_only_back_to_start(session: Session, mock_wa_client: MagicMock):
+def test_leaf_whose_parent_is_the_root_offers_back_to_the_root_and_back_to_start(
+    session: Session, mock_wa_client: MagicMock
+):
     root = _root_with_children(session, 0)
     leaf = _add(session, "Aviso", parent_id=root.id, message="Aviso importante")
     assert leaf.id is not None
@@ -189,7 +281,24 @@ def test_leaf_whose_parent_is_the_root_offers_only_back_to_start(session: Sessio
     handle_menu_navigation(mock_wa_client, _context(session), leaf.id)
 
     sent = _sent(mock_wa_client)
-    assert [(b.title, b.callback_data) for b in sent["buttons"]] == [("Voltar ao início", ACTION_ROOT)]
+    assert sent["text"] == "Aviso importante\n\nDeseja realizar outra consulta?"
+    assert [(b.title, b.callback_data) for b in sent["buttons"]] == [
+        ("Voltar", f"menu:{root.id}"),
+        ("Voltar ao início", ACTION_ROOT),
+    ]
+
+
+def test_leaf_at_depth_three_goes_back_to_its_own_parent(session: Session, mock_wa_client: MagicMock):
+    root = _root_with_children(session, 0)
+    first = _add(session, "Cursos", parent_id=root.id)
+    second = _add(session, "Engenharia", parent_id=first.id)
+    leaf = _add(session, "Civil", parent_id=second.id)
+    assert leaf.id is not None
+
+    handle_menu_navigation(mock_wa_client, _context(session), leaf.id)
+
+    callbacks = [b.callback_data for b in _sent(mock_wa_client)["buttons"]]
+    assert callbacks == [f"menu:{second.id}", ACTION_ROOT]
 
 
 def test_leaf_without_parent_that_is_not_the_root_offers_only_back_to_start(

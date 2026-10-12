@@ -36,7 +36,7 @@ MENUS_DATA = [
     {
         "id": 2,
         "name": "menu_cursos",
-        "selection_name": "1 - Cursos de Graduação",
+        "selection_name": "1 - Graduação",
         "message": (
             "🎓 *Cursos de Graduação - UDESC*\n\n"
             "Selecione um dos cursos abaixo para ver detalhes, duração, turno e contatos da coordenação:"
@@ -46,7 +46,7 @@ MENUS_DATA = [
     {
         "id": 3,
         "name": "menu_secretaria",
-        "selection_name": "2 - Secretaria Acadêmica",
+        "selection_name": "2 - Secretaria",
         "message": (
             "📋 *Secretaria Acadêmica*\n\n"
             "Escolha um dos serviços abaixo para obter orientações, prazos e emissão de documentos:"
@@ -56,7 +56,7 @@ MENUS_DATA = [
     {
         "id": 4,
         "name": "menu_suporte",
-        "selection_name": "3 - Suporte e Tecnologia",
+        "selection_name": "3 - Suporte e TI",
         "message": (
             "💻 *Suporte de TI e Sistemas*\n\n"
             "Como podemos ajudar com os sistemas institucionais? Escolha uma opção:"
@@ -66,7 +66,7 @@ MENUS_DATA = [
     {
         "id": 5,
         "name": "menu_atendente",
-        "selection_name": "4 - Falar com Atendente",
+        "selection_name": "4 - Atendente",
         "message": (
             "📞 *Atendimento Presencial e Contato*\n\n"
             "Nossa equipe atende de segunda a sexta-feira, das 08h às 20h.\n"
@@ -82,7 +82,7 @@ MENUS_DATA = [
     {
         "id": 6,
         "name": "curso_cc",
-        "selection_name": "1.1 - Ciência da Computação",
+        "selection_name": "1.1 - Computação",
         "message": (
             "💻 *Bacharelado em Ciência da Computação*\n\n"
             "• Duração: 4 anos (8 semestres)\n"
@@ -96,7 +96,7 @@ MENUS_DATA = [
     {
         "id": 7,
         "name": "curso_si",
-        "selection_name": "1.2 - Sistemas de Informação",
+        "selection_name": "1.2 - Sist. Inform.",
         "message": (
             "📊 *Bacharelado em Sistemas de Informação*\n\n"
             "• Duração: 4 anos (8 semestres)\n"
@@ -110,7 +110,7 @@ MENUS_DATA = [
     {
         "id": 8,
         "name": "curso_ep",
-        "selection_name": "1.3 - Engenharia de Produção",
+        "selection_name": "1.3 - Eng. Produção",
         "message": (
             "⚙️ *Engenharia de Produção e Sistemas*\n\n"
             "• Duração: 5 anos (10 semestres)\n"
@@ -126,7 +126,7 @@ MENUS_DATA = [
     {
         "id": 9,
         "name": "sec_calendario",
-        "selection_name": "2.1 - Calendário Acadêmico",
+        "selection_name": "2.1 - Calendário",
         "message": (
             "📅 *Calendário Acadêmico 2026*\n\n"
             "• Início das Aulas: 23/02/2026\n"
@@ -140,7 +140,7 @@ MENUS_DATA = [
     {
         "id": 10,
         "name": "sec_documentos",
-        "selection_name": "2.2 - Solicitação de Documentos",
+        "selection_name": "2.2 - Documentos",
         "message": (
             "📄 *Solicitação de Documentos Acadêmicos*\n\n"
             "Selecione o documento que deseja solicitar ou consultar:"
@@ -150,7 +150,7 @@ MENUS_DATA = [
     {
         "id": 11,
         "name": "sec_matricula",
-        "selection_name": "2.3 - Matrícula e Rematrícula",
+        "selection_name": "2.3 - Matrícula",
         "message": (
             "📝 *Matrícula e Rematrícula Online*\n\n"
             "• A rematrícula é realizada semestralmente via SIGA (siga.udesc.br).\n"
@@ -165,7 +165,7 @@ MENUS_DATA = [
     {
         "id": 12,
         "name": "doc_atestado",
-        "selection_name": "2.2.1 - Atestado de Matrícula",
+        "selection_name": "2.2.1 - Atestado",
         "message": (
             "📑 *Atestado de Matrícula Instantâneo*\n\n"
             "Você pode gerar seu atestado oficial com assinatura digital autenticada:\n"
@@ -178,7 +178,7 @@ MENUS_DATA = [
     {
         "id": 13,
         "name": "doc_historico",
-        "selection_name": "2.2.2 - Histórico Escolar",
+        "selection_name": "2.2.2 - Histórico",
         "message": (
             "📜 *Histórico Escolar*\n\n"
             "• Histórico Simples (para estágio/conferência): Emissão imediata pelo SIGA.\n"
@@ -189,7 +189,7 @@ MENUS_DATA = [
     {
         "id": 14,
         "name": "doc_trancamento",
-        "selection_name": "2.2.3 - Trancamento de Matrícula",
+        "selection_name": "2.2.3 - Trancamento",
         "message": (
             "⏸️ *Trancamento de Matrícula*\n\n"
             "• O trancamento deve ser solicitado até a data limite estipulada no calendário acadêmico.\n"
@@ -230,7 +230,7 @@ MENUS_DATA = [
     {
         "id": 17,
         "name": "sup_labs",
-        "selection_name": "3.3 - Laboratórios de Informática",
+        "selection_name": "3.3 - Laboratórios",
         "message": (
             "🖥️ *Laboratórios de Informática*\n\n"
             "• Localização: Bloco F (Salas F-101 a F-108).\n"

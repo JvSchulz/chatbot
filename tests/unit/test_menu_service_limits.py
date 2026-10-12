@@ -7,14 +7,14 @@ from sqlmodel import Session, select
 
 from src.models.menu_model import Menu
 from src.services.menu_service import (
-    WHATSAPP_LIST_LIMIT_MESSAGE,
+    MENU_CHILDREN_LIMIT_MESSAGE,
     MenuData,
     create_menu,
     update_menu,
 )
 
 ROOT_CHILDREN_LIMIT = 9
-SUBMENU_CHILDREN_LIMIT = 10
+SUBMENU_CHILDREN_LIMIT = 9
 
 
 def add_root(session: Session) -> Menu:
@@ -31,7 +31,7 @@ def fill(session: Session, parent: Menu, count: int) -> list[Menu]:
 
 
 def test_limit_message_text():
-    assert WHATSAPP_LIST_LIMIT_MESSAGE == "O WhatsApp permite no máximo 10 opções por lista."
+    assert MENU_CHILDREN_LIMIT_MESSAGE == "Este menu já tem o máximo de 9 opções permitido pelo WhatsApp."
 
 
 def test_root_accepts_its_ninth_child(session: Session):
@@ -51,21 +51,21 @@ def test_root_rejects_a_tenth_child_and_saves_nothing(session: Session):
     with pytest.raises(ValueError) as error:
         add_child(session, root, 99)
 
-    assert str(error.value) == WHATSAPP_LIST_LIMIT_MESSAGE
+    assert str(error.value) == MENU_CHILDREN_LIMIT_MESSAGE
     assert len(session.exec(select(Menu)).all()) == ROOT_CHILDREN_LIMIT + 1
 
 
-def test_submenu_accepts_its_tenth_child(session: Session):
+def test_submenu_accepts_its_ninth_child(session: Session):
     root = add_root(session)
     parent = add_child(session, root, 0)
     fill(session, parent, SUBMENU_CHILDREN_LIMIT - 1)
 
-    tenth = add_child(session, parent, 99)
+    ninth = add_child(session, parent, 99)
 
-    assert tenth.parent_id == parent.id
+    assert ninth.parent_id == parent.id
 
 
-def test_submenu_rejects_an_eleventh_child(session: Session):
+def test_submenu_rejects_a_tenth_child_and_saves_nothing(session: Session):
     root = add_root(session)
     parent = add_child(session, root, 0)
     fill(session, parent, SUBMENU_CHILDREN_LIMIT)
@@ -73,7 +73,8 @@ def test_submenu_rejects_an_eleventh_child(session: Session):
     with pytest.raises(ValueError) as error:
         add_child(session, parent, 99)
 
-    assert str(error.value) == WHATSAPP_LIST_LIMIT_MESSAGE
+    assert str(error.value) == MENU_CHILDREN_LIMIT_MESSAGE
+    assert len(session.exec(select(Menu).where(Menu.parent_id == parent.id)).all()) == SUBMENU_CHILDREN_LIMIT
 
 
 def test_children_of_other_parents_do_not_count(session: Session):
@@ -97,7 +98,7 @@ def test_moving_a_menu_under_a_full_root_is_rejected(session: Session):
     with pytest.raises(ValueError) as error:
         update_menu(session, leaf.id, MenuData(name="a", selection_name="a", message="a", parent_id=root.id))  # type: ignore
 
-    assert str(error.value) == WHATSAPP_LIST_LIMIT_MESSAGE
+    assert str(error.value) == MENU_CHILDREN_LIMIT_MESSAGE
     session.refresh(leaf)
     assert leaf.parent_id == intermediate.id
 
@@ -111,7 +112,7 @@ def test_moving_a_menu_under_a_full_submenu_is_rejected(session: Session):
     with pytest.raises(ValueError) as error:
         update_menu(session, other.id, MenuData(name="a", selection_name="a", message="a", parent_id=full.id))  # type: ignore
 
-    assert str(error.value) == WHATSAPP_LIST_LIMIT_MESSAGE
+    assert str(error.value) == MENU_CHILDREN_LIMIT_MESSAGE
 
 
 def test_moving_a_menu_to_a_parent_with_room_is_allowed(session: Session):

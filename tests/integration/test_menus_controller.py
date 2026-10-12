@@ -550,7 +550,7 @@ def test_menus_page_renders_the_selected_card_and_its_active_list_item(session: 
     assert re.search(rf'data-id="{root.id}"\s+class="split-list-item active"', response.text)
 
 
-LIST_LIMIT_MESSAGE = "O WhatsApp permite no máximo 10 opções por lista."
+LIST_LIMIT_MESSAGE = "Este menu já tem o máximo de 9 opções permitido pelo WhatsApp."
 
 
 def _root_with_children(session: Session, children: int) -> Menu:
@@ -574,6 +574,25 @@ def test_create_tenth_child_under_the_root_returns_422_with_the_limit_message(se
     assert response.status_code == 422
     assert LIST_LIMIT_MESSAGE in response.text
     assert len(session.exec(select(Menu)).all()) == 10
+
+
+def test_create_tenth_child_under_a_submenu_returns_422_with_the_limit_message(session: Session):
+    client = make_client(session)
+    root = _root_with_children(session, 1)
+    submenu = session.exec(select(Menu).where(Menu.parent_id == root.id)).one()
+    session.add_all(
+        Menu(name=f"neto {i}", selection_name="N", message="M", parent_id=submenu.id) for i in range(9)
+    )
+    session.commit()
+
+    response = client.post(
+        "/menus",
+        data={"name": "extra", "selection_name": "E", "message": "M", "parent_id": str(submenu.id), "is_root": "false"},
+    )
+
+    assert response.status_code == 422
+    assert LIST_LIMIT_MESSAGE in response.text
+    assert len(session.exec(select(Menu).where(Menu.parent_id == submenu.id)).all()) == 9
 
 
 def test_create_ninth_child_under_the_root_succeeds(session: Session):

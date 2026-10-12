@@ -169,6 +169,7 @@ def test_split_view_context_with_no_menus_drafts_the_first_root(session: Session
         "is_current_root": True,
         "can_toggle_root": True,
         "valid_parents": [],
+        "limits": {"selection_name": 20, "message": 991},
     }
 
 

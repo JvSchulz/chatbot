@@ -23,7 +23,9 @@
 
     <div id="user-error">
         {% if error %}
-        <div class="alert alert-danger">{{ error }}</div>
+        <div class="alert alert-danger" role="alert">{{ error }}</div>
+        {% elif success %}
+        <div class="alert alert-success" role="status">{{ success }}</div>
         {% endif %}
     </div>
 

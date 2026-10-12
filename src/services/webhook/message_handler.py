@@ -17,6 +17,7 @@ from pywa.types.user import User
 from sqlmodel import Session
 from src.models.menu_model import Menu
 from src.services.menu_service import (
+    LEAF_SUFFIX,
     get_menu_by_id,
     get_root_children,
     get_root_menu,
@@ -45,6 +46,12 @@ MAX_LIST_ROWS = 10
 ACTION_ASK_QUESTION = "action:ask_question"
 ACTION_ROOT = "action:root"
 PREFIX_MENU = "menu:"
+
+# Títulos dos botões e das seções de navegação
+BACK_TITLE = "Voltar"
+BACK_TO_START_TITLE = "Voltar ao início"
+MENU_SECTION_TITLE = "Menu"
+NAVIGATION_SECTION_TITLE = "Navegação"
 
 NO_ROOT_MESSAGE = "Atendimento indisponível no momento. Tente novamente mais tarde."
 MODEL_UNAVAILABLE_MESSAGE = (
@@ -412,7 +419,8 @@ def handle_menu_navigation(
     """
     Processa a navegação hierárquica e renderiza o próximo nível de menus.
 
-    A raiz é renderizada como menu raiz; folhas oferecem "Voltar" apenas quando o pai não é a raiz.
+    A raiz é renderizada como menu raiz; submenus mostram os filhos e "Voltar"; folhas oferecem
+    "Voltar" e "Voltar ao início".
 
     Args:
         client: Cliente WhatsApp do PyWa para despacho de mensagens.
@@ -438,10 +446,11 @@ def handle_menu_navigation(
     if submenus:
         response = build_child_response_object(
             menus=submenus,
+            back=build_back_button(menu),
             intro_text=menu.message,
         )
     else:
-        response = build_leaf_response_object(menu, root)
+        response = build_leaf_response_object(menu)
 
     msg_id = dispatch_reply(
         client=client,
@@ -453,35 +462,37 @@ def handle_menu_navigation(
     return menu_id
 
 
-def build_leaf_response_object(menu: Menu, root: Menu | None) -> dict[str, Any]:
+def build_back_button(menu: Menu) -> Button:
+    """
+    Constrói o botão "Voltar" de um menu: leva ao menu pai, ou ao início se o menu não tem pai.
+
+    Args:
+        menu: Menu exibido ao usuário.
+
+    Returns:
+        Botão "Voltar" com o callback do menu pai.
+    """
+    target = ACTION_ROOT if menu.parent_id is None else f"{PREFIX_MENU}{menu.parent_id}"
+    return Button(title=BACK_TITLE, callback_data=target)
+
+
+def build_leaf_response_object(menu: Menu) -> dict[str, Any]:
     """
     Constrói o payload de um menu folha: a mensagem final e os botões de retorno.
 
     Args:
         menu: Menu folha a ser exibido.
-        root: Menu raiz atual, se houver.
 
     Returns:
-        Dicionário com 'text' e 'buttons'; "Voltar" só existe se o pai não for a raiz.
+        Dicionário com 'text' e 'buttons': "Voltar" (ao pai) e "Voltar ao início". Um menu sem pai
+        só oferece "Voltar ao início", porque os dois botões levariam ao mesmo lugar.
     """
-    leaf_buttons: list[Button] = []
-    parent_is_root = root is not None and menu.parent_id == root.id
-    if menu.parent_id is not None and not parent_is_root:
-        leaf_buttons.append(
-            Button(
-                title="Voltar"[:MAX_BUTTON_TITLE_LEN],
-                callback_data=f"{PREFIX_MENU}{menu.parent_id}",
-            )
-        )
-    leaf_buttons.append(
-        Button(
-            title="Voltar ao início"[:MAX_BUTTON_TITLE_LEN],
-            callback_data=ACTION_ROOT,
-        )
-    )
+    back = build_back_button(menu)
+    start = Button(title=BACK_TO_START_TITLE, callback_data=ACTION_ROOT)
+    buttons = [start] if back.callback_data == start.callback_data else [back, start]
     return {
-        "text": f"{menu.message}\n\nDeseja realizar outra consulta?",
-        "buttons": leaf_buttons,
+        "text": f"{menu.message}{LEAF_SUFFIX}",
+        "buttons": buttons,
     }
 
 
@@ -537,27 +548,30 @@ def build_root_response_object(
 
 def build_child_response_object(
     menus: Sequence[Menu],
+    back: Button,
     intro_text: str,
 ) -> dict[str, Any]:
     """
-    Constrói o payload para submenus, contendo exclusivamente as opções filhas.
+    Constrói o payload para submenus: as opções filhas seguidas do botão "Voltar".
 
     Args:
         menus: Sequência de submenus a serem apresentados.
+        back: Botão "Voltar" do menu exibido.
         intro_text: Texto principal exibido no corpo da mensagem.
 
     Returns:
-        Dicionário contendo as chaves 'text' e 'buttons' para despacho via PyWa.
+        Dicionário com 'text' e 'buttons': botões de resposta rápida se filhos e "Voltar" couberem
+        em três, senão uma lista de seções.
     """
-    if len(menus) <= MAX_QUICK_REPLY_BUTTONS:
+    if len(menus) + 1 <= MAX_QUICK_REPLY_BUTTONS:
         return {
             "text": intro_text,
-            "buttons": build_child_menu_buttons(menus),
+            "buttons": [*build_child_menu_buttons(menus), back],
         }
 
     return {
         "text": intro_text,
-        "buttons": build_child_menu_section_list(menus),
+        "buttons": build_child_menu_section_list(menus, back),
     }
 
 
@@ -610,7 +624,8 @@ def limit_list_menus(menus: Sequence[Menu], reserved_rows: int) -> Sequence[Menu
 
     Args:
         menus: Menus candidatos a linhas da lista.
-        reserved_rows: Linhas fixas da lista que não vêm de menus (a pergunta ao modelo na raiz).
+        reserved_rows: Linhas fixas da lista que não vêm de menus ("Fazer uma pergunta" na raiz,
+            "Voltar" nos demais menus).
 
     Returns:
         Os primeiros menus que cabem, mantendo a ordem.
@@ -648,26 +663,33 @@ def build_root_menu_section_list(menus: Sequence[Menu]) -> SectionList:
             description="Tirar dúvidas com nosso assistente virtual"[:MAX_ROW_DESC_LEN],
         )
     )
-    section = Section(title="Menu", rows=rows)
+    section = Section(title=MENU_SECTION_TITLE, rows=rows)
     return SectionList(button_title="Ver Opções", sections=[section])
 
 
-def build_child_menu_section_list(menus: Sequence[Menu]) -> SectionList:
+def build_child_menu_section_list(menus: Sequence[Menu], back: Button) -> SectionList:
     """
-    Monta a lista de seções contendo estritamente os submenus filhos.
+    Monta a lista de seções de um submenu: os filhos em "Menu" e o "Voltar" em "Navegação".
 
     Args:
         menus: Sequência de registros de submenus.
+        back: Botão "Voltar" do menu exibido, que vira a única linha da seção de navegação.
 
     Returns:
-        Instância de SectionList configurada exclusivamente com os submenus.
+        Instância de SectionList com a linha de "Voltar" reservada fora do corte dos filhos.
     """
     rows = [
         SectionRow(
             title=(m.selection_name or m.name)[:MAX_ROW_TITLE_LEN],
             callback_data=f"{PREFIX_MENU}{m.id}",
         )
-        for m in limit_list_menus(menus, reserved_rows=0)
+        for m in limit_list_menus(menus, reserved_rows=1)
     ]
-    section = Section(title="Menu", rows=rows)
-    return SectionList(button_title="Ver Opções", sections=[section])
+    navigation_row = SectionRow(title=back.title[:MAX_ROW_TITLE_LEN], callback_data=back.callback_data)
+    return SectionList(
+        button_title="Ver Opções",
+        sections=[
+            Section(title=MENU_SECTION_TITLE, rows=rows),
+            Section(title=NAVIGATION_SECTION_TITLE, rows=[navigation_row]),
+        ],
+    )

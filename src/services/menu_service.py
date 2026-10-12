@@ -1,3 +1,5 @@
+import re
+import unicodedata
 from typing import Sequence, Any
 from dataclasses import dataclass, replace
 from sqlmodel import Session, func, select
@@ -6,11 +8,35 @@ from src.models.menu_model import Menu
 
 MENU_FIELDS_REQUIRED_MESSAGE = "Preencha nome, texto de seleção e mensagem."
 
-# Uma lista interativa do WhatsApp aceita no máximo 10 linhas; no menu raiz uma delas é
-# reservada para "Fazer uma pergunta".
+# Uma lista interativa do WhatsApp aceita no máximo 10 linhas; uma delas é sempre reservada
+# ("Fazer uma pergunta" na raiz, "Voltar" nos demais menus), então todo pai comporta 9 filhos.
 WHATSAPP_LIST_LIMIT = 10
-ROOT_CHILDREN_LIMIT = WHATSAPP_LIST_LIMIT - 1
-WHATSAPP_LIST_LIMIT_MESSAGE = f"O WhatsApp permite no máximo {WHATSAPP_LIST_LIMIT} opções por lista."
+MENU_CHILDREN_LIMIT = WHATSAPP_LIST_LIMIT - 1
+MENU_CHILDREN_LIMIT_MESSAGE = (
+    f"Este menu já tem o máximo de {MENU_CHILDREN_LIMIT} opções permitido pelo WhatsApp."
+)
+
+# Sufixo que o bot acrescenta à mensagem de uma folha; o corpo interativo da Meta aceita 1024
+# caracteres, então a mensagem cadastrada precisa deixar espaço para ele.
+LEAF_SUFFIX = "\n\nDeseja realizar outra consulta?"
+WHATSAPP_BODY_LIMIT = 1024
+
+# O título de um botão de resposta rápida (o limite mais estrito em que o texto de seleção aparece)
+# aceita 20 caracteres.
+MAX_SELECTION_NAME_LEN = 20
+MAX_MESSAGE_LEN = WHATSAPP_BODY_LIMIT - len(LEAF_SUFFIX)
+
+# Limites entregues aos templates do formulário, que os usam em maxlength e no contador.
+MENU_TEXT_LIMITS = {"selection_name": MAX_SELECTION_NAME_LEN, "message": MAX_MESSAGE_LEN}
+
+SELECTION_NAME_LABEL = "Texto de seleção"
+MESSAGE_LABEL = "Mensagem"
+
+# Sequências de dígitos maiores que isto são cortadas na chave de ordenação: o Python recusa
+# converter números gigantes e a lista de menus não pode quebrar por causa de um nome.
+MAX_SORT_DIGITS = 100
+
+DIGIT_RUNS_PATTERN = re.compile(r"(\d+)")
 
 
 @dataclass
@@ -25,26 +51,88 @@ class MenuData:
 
 def _clean_menu_data(data: MenuData) -> MenuData:
     """
-    Remove os espaços das pontas dos campos de texto do menu e exige que nenhum fique vazio.
+    Remove os espaços das pontas dos campos de texto do menu, exige que nenhum fique vazio e
+    confere os limites de tamanho do texto de seleção e da mensagem.
+
+    O texto de seleção tem todas as sequências de espaços em branco (inclusive quebras de linha
+    e tabulações) colapsadas em um único espaço antes da conferência do limite, para que nada
+    de quebra chegue ao título do botão ou da linha no WhatsApp e o limite conte o texto exibido.
+
+    O navegador envia quebras de linha como CRLF, mas conta e exibe cada quebra como um só
+    caractere; a mensagem é normalizada para LF para que o contador do formulário e o limite
+    do servidor concordem.
 
     Args:
         data: Dados de menu recebidos do formulário.
 
     Returns:
-        Cópia dos dados com nome, texto de seleção e mensagem sem espaços nas pontas.
+        Cópia dos dados com nome, texto de seleção e mensagem sem espaços nas pontas; o texto de
+        seleção também sem espaços repetidos ou quebras no meio.
 
     Raises:
-        ValueError: Se algum dos três campos estiver vazio ou contiver apenas espaços.
+        ValueError: Se algum dos três campos estiver vazio ou contiver apenas espaços, ou se o
+            texto de seleção ou a mensagem passar do limite de caracteres do WhatsApp.
     """
     cleaned = replace(
         data,
         name=data.name.strip(),
-        selection_name=data.selection_name.strip(),
-        message=data.message.strip(),
+        selection_name=" ".join(data.selection_name.split()),
+        message=data.message.replace("\r\n", "\n").strip(),
     )
     if not (cleaned.name and cleaned.selection_name and cleaned.message):
         raise ValueError(MENU_FIELDS_REQUIRED_MESSAGE)
+    _ensure_within_limit(SELECTION_NAME_LABEL, cleaned.selection_name, MAX_SELECTION_NAME_LEN)
+    _ensure_within_limit(MESSAGE_LABEL, cleaned.message, MAX_MESSAGE_LEN)
     return cleaned
+
+
+def _ensure_within_limit(label: str, text: str, limit: int) -> None:
+    """
+    Garante que um texto enviado ao WhatsApp não passa do limite de caracteres da Meta.
+
+    Args:
+        label: Nome do campo no formulário, usado na mensagem de erro.
+        text: Texto já sem espaços nas pontas.
+        limit: Máximo de caracteres permitido.
+
+    Raises:
+        ValueError: Se o texto tiver mais caracteres que o limite.
+    """
+    if len(text) > limit:
+        raise ValueError(f"{label} pode ter no máximo {limit} caracteres.")
+
+
+def menu_sort_key(text: str) -> tuple[tuple[int, int | str], ...]:
+    """
+    Gera a chave de ordenação natural de um texto de menu.
+
+    Ignora maiúsculas, minúsculas e acentos e compara sequências de dígitos como números, então
+    "2 - Y" vem antes de "10 - X". Cada trecho recebe uma etiqueta (0 para número, 1 para texto),
+    o que mantém as tuplas comparáveis quando um número encontra um texto na mesma posição.
+
+    Args:
+        text: Nome ou texto de seleção do menu.
+
+    Returns:
+        Tupla de trechos etiquetados, própria para o parâmetro key de sorted().
+    """
+    decomposed = unicodedata.normalize("NFKD", text)
+    folded = "".join(char for char in decomposed if not unicodedata.combining(char)).casefold()
+    return tuple(
+        (0, int(part[:MAX_SORT_DIGITS])) if part.isdecimal() else (1, part)
+        for part in DIGIT_RUNS_PATTERN.split(folded)
+        if part
+    )
+
+
+def _sorted_by_name(menus: Sequence[Menu]) -> list[Menu]:
+    """Ordena os menus pelo nome interno com a chave natural; empates seguem o id."""
+    return sorted(menus, key=lambda menu: (menu_sort_key(menu.name), menu.id or 0))
+
+
+def _sorted_by_selection_name(menus: Sequence[Menu]) -> list[Menu]:
+    """Ordena os menus pelo texto de seleção com a chave natural; empates seguem o id."""
+    return sorted(menus, key=lambda menu: (menu_sort_key(menu.selection_name), menu.id or 0))
 
 
 def is_root_toggle_allowed(has_root: bool, is_current_root: bool) -> bool:
@@ -63,7 +151,7 @@ def is_root_toggle_allowed(has_root: bool, is_current_root: bool) -> bool:
 
 def get_all_menus(session: Session) -> Sequence[Menu]:
     """
-    Retorna todos os menus ordenados alfabeticamente pelo nome.
+    Retorna todos os menus ordenados pelo nome com a chave natural (sem distinguir caixa e acentos).
 
     Args:
         session: Sessão ativa do banco de dados.
@@ -71,7 +159,7 @@ def get_all_menus(session: Session) -> Sequence[Menu]:
     Returns:
         Sequência de todos os menus cadastrados.
     """
-    return session.exec(select(Menu).order_by(Menu.name)).all()  # type: ignore
+    return _sorted_by_name(session.exec(select(Menu)).all())
 
 
 def get_root_menus(session: Session) -> Sequence[Menu]:
@@ -119,16 +207,16 @@ def get_root_children(session: Session) -> Sequence[Menu]:
 
 def get_submenus(session: Session, parent_id: int) -> Sequence[Menu]:
     """
-    Retorna todos os submenus vinculados a um determinado menu pai.
+    Retorna os submenus de um menu pai, na ordem em que o WhatsApp os exibe.
 
     Args:
         session: Sessão ativa do banco de dados.
         parent_id: Identificador do menu pai.
 
     Returns:
-        Sequência de submenus vinculados.
+        Submenus ordenados pelo texto de seleção com a chave natural.
     """
-    return session.exec(select(Menu).where(Menu.parent_id == parent_id)).all()
+    return _sorted_by_selection_name(session.exec(select(Menu).where(Menu.parent_id == parent_id)).all())
 
 
 def get_menu_by_id(session: Session, menu_id: int) -> Menu | None:
@@ -157,9 +245,9 @@ def get_valid_parent_menus(
         exclude_id: Identificador do menu sendo editado (exclui ele e seus descendentes).
 
     Returns:
-        Sequência de menus que podem atuar como pai sem gerar ciclos.
+        Menus que podem atuar como pai sem gerar ciclos, ordenados pelo nome.
     """
-    all_menus = session.exec(select(Menu).order_by(Menu.name)).all()  # type: ignore
+    all_menus = get_all_menus(session)
     if exclude_id is None:
         return all_menus
 
@@ -182,7 +270,7 @@ def build_menu_split_view_context(
         selected_id: Identificador opcional do menu a ser exibido selecionado.
 
     Returns:
-        Dicionário com menus, menu selecionado, menu raiz e flags de validação de raiz.
+        Dicionário com menus, menu selecionado, menu raiz, flags de validação de raiz e limites de texto.
     """
     all_menus = get_all_menus(session)
     root_menu = get_root_menu(session)
@@ -206,6 +294,7 @@ def build_menu_split_view_context(
         "is_current_root": is_current_root,
         "can_toggle_root": can_toggle_root,
         "valid_parents": valid_parents,
+        "limits": MENU_TEXT_LIMITS,
     }
 
 
@@ -236,15 +325,14 @@ def _ensure_parent_has_room(session: Session, parent_id: int) -> None:
         parent_id: Identificador do menu que receberá o filho.
 
     Raises:
-        ValueError: Se o pai já tem o máximo de filhos (9 para a raiz, 10 para os demais).
+        ValueError: Se o pai já tem o máximo de filhos (9, uma linha fica reservada à navegação).
     """
     parent = session.get(Menu, parent_id)
     if parent is None:
         return
-    limit = ROOT_CHILDREN_LIMIT if parent.parent_id is None else WHATSAPP_LIST_LIMIT
     count_children = select(func.count()).select_from(Menu).where(Menu.parent_id == parent_id)
-    if session.exec(count_children).one() >= limit:
-        raise ValueError(WHATSAPP_LIST_LIMIT_MESSAGE)
+    if session.exec(count_children).one() >= MENU_CHILDREN_LIMIT:
+        raise ValueError(MENU_CHILDREN_LIMIT_MESSAGE)
 
 
 def _second_root_message(existing_root: Menu) -> str:
