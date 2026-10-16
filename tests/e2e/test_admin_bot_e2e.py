@@ -67,7 +67,7 @@ def test_admin_builds_menus_users_visit_them_and_a_visited_leaf_can_be_deleted(
 
     assert _post_webhook("text", "Olá", webhook_body) == 200
     assert outbound[-1]["text"] == "Mensagem de menu_inicio"
-    assert [b.title for b in outbound[-1]["buttons"]] == ["Cursos", "Secretaria", "Fazer Pergunta"]
+    assert [b.title for b in outbound[-1]["buttons"]] == ["Cursos", "Secretaria"]
 
     assert _post_webhook("button", f"menu:{leaf_id}", webhook_body) == 200
     assert outbound[-1]["text"].startswith("Mensagem de Secretaria")
@@ -114,7 +114,7 @@ def test_options_created_out_of_order_are_listed_and_sent_sorted_with_confirmati
 
     assert _post_webhook("text", "Olá", webhook_body) == 200
     rows = list(list(outbound[-1]["buttons"].sections)[0].rows)
-    assert [row.title for row in rows[:-1]] == ["Monitoria", "Tutoria", "Extensão", "Estágio"]
+    assert [row.title for row in rows] == ["Monitoria", "Tutoria", "Extensão", "Estágio"]
 
     tutoring_id = _menu_id(session, "2 tutoria")
     assert _post_webhook("button", f"menu:{tutoring_id}", webhook_body) == 200

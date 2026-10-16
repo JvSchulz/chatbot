@@ -37,39 +37,35 @@ def test_is_session_expired_boundary_condition():
     assert is_session_expired(last_interaction, current_time=now) is False
 
 
-def test_evaluate_session_ttl_preserves_conversational_when_active():
+def test_evaluate_session_ttl_preserves_the_current_menu_when_active():
     """
-    Deve preservar o modo conversacional e o menu atual se a inatividade for inferior a 15 minutos.
+    Deve preservar o menu atual se a inatividade for inferior a 15 minutos.
     """
     now = datetime.now(timezone.utc)
     session = UserSession(
         user_id="BR.1000000000001",
-        mode="conversational",
         current_menu_id=5,
         last_interaction_at=now - timedelta(minutes=10),
     )
 
     evaluated = evaluate_session_ttl(session, current_time=now)
 
-    assert evaluated.mode == "conversational"
     assert evaluated.current_menu_id == 5
 
 
-def test_evaluate_session_ttl_resets_to_menu_when_expired():
+def test_evaluate_session_ttl_clears_the_current_menu_when_expired():
     """
-    Deve resetar o modo para 'menu' e current_menu_id para None se ultrapassar 15 minutos.
+    Deve limpar current_menu_id se a inatividade ultrapassar 15 minutos.
     """
     now = datetime.now(timezone.utc)
     session = UserSession(
         user_id="BR.1000000000001",
-        mode="conversational",
         current_menu_id=5,
         last_interaction_at=now - timedelta(minutes=20),
     )
 
     evaluated = evaluate_session_ttl(session, current_time=now)
 
-    assert evaluated.mode == "menu"
     assert evaluated.current_menu_id is None
 
 
@@ -77,14 +73,13 @@ def test_evaluate_session_ttl_uses_the_given_reference_time_not_the_clock():
     last_interaction = datetime(2020, 1, 1, 12, 0, tzinfo=timezone.utc)
     session = UserSession(
         user_id="BR.1000000000001",
-        mode="conversational",
         current_menu_id=5,
         last_interaction_at=last_interaction,
     )
 
     evaluated = evaluate_session_ttl(session, current_time=last_interaction + timedelta(minutes=5))
 
-    assert (evaluated.mode, evaluated.current_menu_id) == ("conversational", 5)
+    assert evaluated.current_menu_id == 5
 
 
 def test_is_session_expired_defaults_to_the_current_time():

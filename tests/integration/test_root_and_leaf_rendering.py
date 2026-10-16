@@ -8,7 +8,6 @@ from pywa.types import Button, SectionList
 from src.models.chat_history_model import ChatHistory
 from src.models.menu_model import Menu
 from src.services.webhook.message_handler import (
-    ACTION_ASK_QUESTION,
     ACTION_ROOT,
     NO_ROOT_MESSAGE,
     MessageContext,
@@ -62,7 +61,7 @@ def _sent(client: MagicMock) -> dict:
     return client.send_message.call_args.kwargs
 
 
-def test_root_with_two_children_sends_three_quick_reply_buttons(session: Session, mock_wa_client: MagicMock):
+def test_root_with_two_children_sends_two_quick_reply_buttons(session: Session, mock_wa_client: MagicMock):
     root = _root_with_children(session, 2)
 
     send_root_menu(mock_wa_client, _context(session))
@@ -71,13 +70,12 @@ def test_root_with_two_children_sends_three_quick_reply_buttons(session: Session
     assert sent["text"] == ROOT_MESSAGE
     buttons = sent["buttons"]
     assert all(isinstance(button, Button) for button in buttons)
-    assert [b.title for b in buttons] == ["Filho 1", "Filho 2", "Fazer Pergunta"]
-    assert buttons[-1].callback_data == ACTION_ASK_QUESTION
+    assert [b.title for b in buttons] == ["Filho 1", "Filho 2"]
     assert root.id is not None and all(b.callback_data != f"menu:{root.id}" for b in buttons)
 
 
-def test_root_with_three_children_sends_a_section_list(session: Session, mock_wa_client: MagicMock):
-    _root_with_children(session, 3)
+def test_root_with_four_children_sends_a_section_list(session: Session, mock_wa_client: MagicMock):
+    _root_with_children(session, 4)
 
     send_root_menu(mock_wa_client, _context(session))
 
@@ -85,17 +83,25 @@ def test_root_with_three_children_sends_a_section_list(session: Session, mock_wa
     assert sent["text"] == ROOT_MESSAGE
     assert isinstance(sent["buttons"], SectionList)
     rows = list(list(sent["buttons"].sections)[0].rows)
-    assert [row.title for row in rows] == ["Filho 1", "Filho 2", "Filho 3", "Fazer uma pergunta"]
+    assert [row.title for row in rows] == ["Filho 1", "Filho 2", "Filho 3", "Filho 4"]
 
 
-def test_root_without_children_sends_only_the_ask_button(session: Session, mock_wa_client: MagicMock):
+def test_root_with_three_children_sends_three_quick_reply_buttons(session: Session, mock_wa_client: MagicMock):
+    _root_with_children(session, 3)
+
+    send_root_menu(mock_wa_client, _context(session))
+
+    assert [b.title for b in _sent(mock_wa_client)["buttons"]] == ["Filho 1", "Filho 2", "Filho 3"]
+
+
+def test_root_without_children_sends_the_message_as_plain_text(session: Session, mock_wa_client: MagicMock):
     _root_with_children(session, 0)
 
     send_root_menu(mock_wa_client, _context(session))
 
     sent = _sent(mock_wa_client)
     assert sent["text"] == ROOT_MESSAGE
-    assert [b.callback_data for b in sent["buttons"]] == [ACTION_ASK_QUESTION]
+    assert sent["buttons"] is None
 
 
 def test_without_root_sends_unavailable_message_without_buttons(session: Session, mock_wa_client: MagicMock):
@@ -130,7 +136,7 @@ def test_navigating_to_the_root_id_renders_the_root_view(session: Session, mock_
 
     sent = _sent(mock_wa_client)
     assert sent["text"] == ROOT_MESSAGE
-    assert [b.title for b in sent["buttons"]][-1] == "Fazer Pergunta"
+    assert [b.title for b in sent["buttons"]] == ["Filho 1", "Filho 2"]
 
 
 def test_submenu_with_two_children_sends_them_then_back_as_buttons(session: Session, mock_wa_client: MagicMock):
@@ -171,7 +177,7 @@ def test_submenu_with_three_children_sends_a_list_with_a_navigation_section(
     assert [row.title for row in sections[0].rows] == ["Artes", "Direito", "Engenharia"]
     assert [(row.title, row.callback_data) for row in sections[1].rows] == [("Voltar", f"menu:{root.id}")]
     all_callbacks = [row.callback_data for section in sections for row in section.rows]
-    assert ACTION_ASK_QUESTION not in all_callbacks and ACTION_ROOT not in all_callbacks
+    assert ACTION_ROOT not in all_callbacks
 
 
 def test_submenu_at_depth_two_goes_back_to_its_own_parent(session: Session, mock_wa_client: MagicMock):
@@ -216,7 +222,7 @@ def test_root_options_are_sent_in_natural_order(session: Session, mock_wa_client
     send_root_menu(mock_wa_client, _context(session))
 
     rows = list(list(_sent(mock_wa_client)["buttons"].sections)[0].rows)
-    assert [row.title for row in rows] == ["2 - Y", "10 - X", "abacate", "Ácido", "Fazer uma pergunta"]
+    assert [row.title for row in rows] == ["2 - Y", "10 - X", "abacate", "Ácido"]
 
 
 def test_root_children_created_out_of_order_are_sent_in_order(session: Session, mock_wa_client: MagicMock):
@@ -226,7 +232,7 @@ def test_root_children_created_out_of_order_are_sent_in_order(session: Session, 
 
     send_root_menu(mock_wa_client, _context(session))
 
-    assert [b.title for b in _sent(mock_wa_client)["buttons"]] == ["1-Monitoria", "2-Tutoria", "Fazer Pergunta"]
+    assert [b.title for b in _sent(mock_wa_client)["buttons"]] == ["1-Monitoria", "2-Tutoria"]
 
 
 def test_submenu_reply_never_carries_the_internal_menu_name(session: Session, mock_wa_client: MagicMock):
@@ -321,7 +327,7 @@ def test_navigating_to_a_deleted_menu_falls_back_to_the_root_view(session: Sessi
 
     sent = _sent(mock_wa_client)
     assert sent["text"].startswith("Esse menu não está mais disponível")
-    assert [b.callback_data for b in sent["buttons"]][-1] == ACTION_ASK_QUESTION
+    assert [b.title for b in sent["buttons"]] == ["Filho 1"]
 
 
 def test_navigation_reports_the_menu_left_on_screen(session: Session, mock_wa_client: MagicMock):

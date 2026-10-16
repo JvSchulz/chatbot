@@ -3,8 +3,6 @@ from sqlmodel import Session, select
 from src.models.user_session_model import UserSession
 
 SESSION_TTL_MINUTES = 15
-SESSION_MODE_MENU = "menu"
-SESSION_MODE_CONVERSATIONAL = "conversational"
 
 
 def is_session_expired(
@@ -33,7 +31,7 @@ def evaluate_session_ttl(
     current_time: datetime | None = None,
 ) -> UserSession:
     """
-    Avalia a expiração da sessão, revertendo para o menu raiz caso tenha expirado.
+    Avalia a expiração da sessão, limpando o menu atual (volta ao menu raiz) caso tenha expirado.
 
     Args:
         session: Instância de UserSession a ser inspecionada.
@@ -43,7 +41,6 @@ def evaluate_session_ttl(
         Instância de UserSession com estado atualizado após checagem de TTL.
     """
     if is_session_expired(session.last_interaction_at, current_time=current_time):
-        session.mode = SESSION_MODE_MENU
         session.current_menu_id = None
     return session
 
@@ -73,7 +70,6 @@ def get_or_create_session(session: Session, user_id: str, wa_id: str | None) -> 
         user_session = UserSession(
             user_id=user_id,
             wa_id=wa_id,
-            mode=SESSION_MODE_MENU,
             current_menu_id=None,
             last_interaction_at=now,
         )

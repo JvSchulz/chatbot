@@ -1,8 +1,8 @@
 ## Arquitetura - Overview
 
-A aplicação é um chatbot de atendimento no WhatsApp que combina navegação estruturada por menus hierárquicos e, futuramente, atendimento conversacional alimentado por um modelo de linguagem (LLM).
+A aplicação é um chatbot de atendimento no WhatsApp que atende por navegação estruturada em menus hierárquicos.
 
-O único canal de mensageria é o WhatsApp, pela WhatsApp Cloud API da Meta (biblioteca PyWa). O Telegram foi retirado do escopo. O painel administrativo web, protegido por autenticação, gerencia os menus e os usuários administradores e mostra o histórico das conversas. A integração com o provedor local de LLM (Ollama) ainda não está ligada: a opção "Fazer uma pergunta" responde com um aviso de indisponibilidade e devolve o menu principal. A hospedagem é projetada para nuvem, VPS ou infraestrutura auto-hospedada (self-hosted).
+O único canal de mensageria é o WhatsApp, pela WhatsApp Cloud API da Meta (biblioteca PyWa). O Telegram foi retirado do escopo. O painel administrativo web, protegido por autenticação, gerencia os menus e os usuários administradores e mostra o histórico das conversas. O atendimento por LLM foi retirado do escopo (o VPS de implantação não comporta um modelo e não há outro host previsto), como o Telegram. A hospedagem é projetada para nuvem, VPS ou infraestrutura auto-hospedada (self-hosted).
 
 ## Stack
 
@@ -12,20 +12,18 @@ O único canal de mensageria é o WhatsApp, pela WhatsApp Cloud API da Meta (bib
 - **Banco de Dados:** SQLite (modo WAL, chaves estrangeiras ligadas)
 - **Frontend:** HTMX e Jinja2, com um único script (`app.js`) e uma folha de estilos (`style.css`) estáticos
 - **Canal de Mensageria:** WhatsApp Cloud API, via PyWa
-- **Provedor LLM (planejado):** Ollama (modelo de porte reduzido, com guardrails)
 
 ## Regras de Negócio e Funcionalidades
 
 ### 1. Atendimento e Navegação (Chatbot)
 
 - **Identidade do usuário:** cada usuário é identificado pelo BSUID da Meta (`user_id`), que sempre existe. O telefone (`wa_id`) é opcional: usuários com nome de usuário do WhatsApp não têm telefone. As respostas vão para o telefone normalizado quando ele existe (número brasileiro de 12 dígitos recebe o 9º dígito) e, senão, para o BSUID. A regra do 9º dígito é uma decisão em aberto até o primeiro teste com um número real da Meta.
-- **Menu raiz como contêiner:** existe um único menu sem pai. A `message` dele é o texto de boas-vindas e os filhos diretos são as opções, mais a opção fixa "Fazer uma pergunta". A raiz não aparece como opção de si mesma.
-- **Navegação em menus:** ao selecionar um item, o bot envia a `message` do menu escolhido e lista os filhos imediatos, seguidos de "Voltar", que leva ao menu pai (a raiz, quando o menu está logo abaixo dela). Isso vale em qualquer profundidade; submenus não oferecem "Fazer uma pergunta" nem "Voltar ao início". O nome interno (`name`) nunca é enviado ao usuário; o texto do botão ou da linha é o `selection_name`.
+- **Menu raiz como contêiner:** existe um único menu sem pai. A `message` dele é o texto de boas-vindas e os filhos diretos são as opções. A raiz não oferece "Voltar" nem outra opção fixa e não aparece como opção de si mesma.
+- **Navegação em menus:** ao selecionar um item, o bot envia a `message` do menu escolhido e lista os filhos imediatos, seguidos de "Voltar", que leva ao menu pai (a raiz, quando o menu está logo abaixo dela). Isso vale em qualquer profundidade; submenus não oferecem "Voltar ao início". O nome interno (`name`) nunca é enviado ao usuário; o texto do botão ou da linha é o `selection_name`.
 - **Folhas:** um menu sem filhos envia a `message` seguida de "Deseja realizar outra consulta?", com os botões "Voltar" (ao pai) e "Voltar ao início" (à raiz), em qualquer profundidade. A raiz não tem botão de retorno.
-- **Ordem das opções:** os filhos de cada menu são ordenados pelo nome interno (`name`), sem diferenciar maiúsculas, minúsculas e acentos, e comparando sequências de dígitos como números ("2 - Y" vem antes de "10 - X"); empates seguem o id. Para controlar a ordem no WhatsApp, numere o nome interno ("1 cursos", "2 secretaria"). As opções fixas ("Fazer uma pergunta", "Voltar") vêm depois dos menus.
-- **Limites da Meta:** filhos mais "Voltar" em até 3 opções viram botões de resposta rápida; acima disso, uma lista interativa com no máximo 10 linhas, com os filhos na seção "Menu" e o "Voltar" sozinho na seção "Navegação" (na raiz, 9 menus mais "Fazer uma pergunta"). Por isso todo menu comporta no máximo 9 filhos. O cadastro de menus impede excedentes e o bot corta o que passar disso (reservando a linha de "Voltar"), com um aviso no log. Títulos de botão têm 20 caracteres, o de linha 24 e o corpo da mensagem 1024: o `selection_name` aceita no máximo 20 caracteres e a `message` no máximo 991 (1024 menos o texto "Deseja realizar outra consulta?" que as folhas acrescentam), contados depois de remover os espaços das pontas. As linhas de menu mostram só o `selection_name`, sem descrição (a única descrição é a fixa de "Fazer uma pergunta"), para que o nome interno nunca chegue ao usuário.
-- **Sessão do usuário:** o estado (`mode`, menu atual, última interação) fica em `user_sessions`. Após 15 minutos sem atividade a sessão volta ao modo menu e o menu atual é limpo. Ao mostrar o menu raiz, o menu atual também é limpo.
-- **Transição conversacional:** a opção "Fazer uma pergunta" e o modo conversacional responderão via LLM fundamentada nos menus. Enquanto o Ollama não está conectado, o usuário recebe "Nosso assistente está temporariamente indisponível. Escolha uma opção do menu:" com as opções da raiz.
+- **Ordem das opções:** os filhos de cada menu são ordenados pelo nome interno (`name`), sem diferenciar maiúsculas, minúsculas e acentos, e comparando sequências de dígitos como números ("2 - Y" vem antes de "10 - X"); empates seguem o id. Para controlar a ordem no WhatsApp, numere o nome interno ("1 cursos", "2 secretaria"). A opção fixa "Voltar" vem depois dos menus.
+- **Limites da Meta:** filhos mais "Voltar" em até 3 opções viram botões de resposta rápida; acima disso, uma lista interativa com no máximo 10 linhas, com os filhos na seção "Menu" e o "Voltar" sozinho na seção "Navegação" (a raiz só mostra os próprios filhos: até 3 viram botões e, acima disso, uma lista com a seção "Menu"; sem filhos, a `message` vai como texto simples). Por isso todo menu comporta no máximo 9 filhos. O cadastro de menus impede excedentes e o bot corta o que passar disso (reservando a linha de "Voltar"), com um aviso no log. Títulos de botão têm 20 caracteres, o de linha 24 e o corpo da mensagem 1024: o `selection_name` aceita no máximo 20 caracteres e a `message` no máximo 991 (1024 menos o texto "Deseja realizar outra consulta?" que as folhas acrescentam), contados depois de remover os espaços das pontas. As linhas de menu mostram só o `selection_name`, sem descrição (nenhuma linha tem descrição), para que o nome interno nunca chegue ao usuário.
+- **Sessão do usuário:** o estado (menu atual, última interação) fica em `user_sessions`. Após 15 minutos sem atividade o menu atual é limpo. Ao mostrar o menu raiz, o menu atual também é limpo.
 - **Eventos do webhook:** cada evento (mensagem, clique em botão ou linha de lista) roda em uma única transação: sessão, mensagem recebida e resposta são gravadas juntas, no final, ou nenhuma delas é. As gravações só chegam ao SQLite no commit, depois do envio à Meta, para que o bloqueio de escrita não fique preso à chamada de rede. Falhas de um tratador viram uma linha de log mascarada e nunca derrubam o webhook.
 - **Integridade do webhook:** cada evento precisa trazer a assinatura `X-Hub-Signature-256` calculada com o `APP_SECRET`; o desafio de verificação usa o `WA_VERIFY_TOKEN`. Logs mascaram telefone e BSUID.
 
@@ -54,7 +52,6 @@ flowchart LR
         U[Usuário no WhatsApp]
         M[Meta Cloud API]
         A[Administrador]
-        LLM[LLM / Ollama - planejado]
     end
 
     subgraph Processo["Processamento Central"]
@@ -79,9 +76,6 @@ flowchart LR
     API <-->|Estado da conversa| DB_SESS
     API <-->|Leitura e escrita de menus| DB_MENU
     API <-->|Autenticação e gestão| DB_USER
-
-    API -.->|Prompt e contexto do menu| LLM
-    LLM -.->|Resposta gerada| API
 ```
 
 ## Diagramas de Classes
@@ -143,7 +137,6 @@ classDiagram
         +int id
         +string user_id
         +string? wa_id
-        +string mode
         +int? current_menu_id
         +datetime last_interaction_at
     }
@@ -160,4 +153,4 @@ classDiagram
     Menu "0..1" <-- "0..*" ChatHistory : menu_id
 ```
 
-`user_id` é o BSUID. `role` vale `user` (mensagem recebida) ou `bot` (resposta enviada). `mode` vale `menu` ou `conversational`.
+`user_id` é o BSUID. `role` vale `user` (mensagem recebida) ou `bot` (resposta enviada).

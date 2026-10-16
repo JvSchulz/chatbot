@@ -6,7 +6,6 @@ from pywa.types import Button, SectionList
 from src.models.menu_model import Menu
 from src.services.menu_service import MAX_MESSAGE_LEN
 from src.services.webhook.message_handler import (
-    ACTION_ASK_QUESTION,
     ACTION_ROOT,
     build_back_button,
     build_leaf_response_object,
@@ -14,7 +13,6 @@ from src.services.webhook.message_handler import (
     build_child_response_object,
     build_child_menu_buttons,
     build_child_menu_section_list,
-    build_root_menu_buttons,
     build_root_menu_section_list,
 )
 
@@ -33,75 +31,53 @@ def _make_menu(menu_id: int, name: str, parent_id: int | None = None) -> Menu:
     )
 
 
-def test_build_root_response_object_with_two_menus_produces_quick_reply_buttons():
-    """
-    Quando o menu raiz tem 2 itens (total 3 opções com pergunta), deve retornar botões de resposta rápida.
-    """
-    menus = [
-        _make_menu(1, "Graduação"),
-        _make_menu(2, "Pós-Graduação"),
+def test_root_without_children_sends_plain_text():
+    result = build_root_response_object(menus=[], intro_text="Bem-vindo")
+
+    assert result == {"text": "Bem-vindo"}
+
+
+def test_root_with_one_child_produces_a_single_button_without_fixed_options():
+    result = build_root_response_object(menus=[_make_menu(1, "Graduação")], intro_text="Escolha:")
+
+    assert result["text"] == "Escolha:"
+    assert all(isinstance(btn, Button) for btn in result["buttons"])
+    assert [(b.title, b.callback_data) for b in result["buttons"]] == [("Graduação", "menu:1")]
+
+
+def test_root_with_three_children_produces_three_buttons_one_per_child():
+    menus = [_make_menu(1, "Graduação"), _make_menu(2, "Pós-Graduação"), _make_menu(3, "Extensão")]
+
+    result = build_root_response_object(menus=menus, intro_text="Escolha:")
+
+    assert [(b.title, b.callback_data) for b in result["buttons"]] == [
+        ("Graduação", "menu:1"),
+        ("Pós-Graduação", "menu:2"),
+        ("Extensão", "menu:3"),
     ]
-    intro = "Escolha uma opção:"
-
-    result = build_root_response_object(menus=menus, intro_text=intro)
-
-    assert result["text"] == intro
-    buttons = result["buttons"]
-    assert isinstance(buttons, list)
-    assert len(buttons) == 3
-    assert all(isinstance(btn, Button) for btn in buttons)
-
-    # Verifica se os menus estão presentes
-    callbacks = [btn.callback_data for btn in buttons]
-    assert "menu:1" in callbacks
-    assert "menu:2" in callbacks
-    assert ACTION_ASK_QUESTION in callbacks
-
-    # Verifica botão de pergunta e títulos dos botões
-    btn_map = {b.callback_data: b.title for b in buttons}
-    assert btn_map["menu:1"] == "Graduação"
-    assert btn_map["menu:2"] == "Pós-Graduação"
-    assert btn_map[ACTION_ASK_QUESTION] == "Fazer Pergunta"
 
 
-def test_build_root_response_object_with_three_menus_produces_section_list():
-    """
-    Quando o menu raiz tem 3 itens (total 4 opções com pergunta), deve alternar para SectionList.
-    """
-    menus = [
-        _make_menu(1, "Graduação"),
-        _make_menu(2, "Pós-Graduação"),
-        _make_menu(3, "Extensão"),
-    ]
-    intro = "Menu principal:"
+def test_root_with_four_children_produces_a_one_section_menu_list_without_descriptions():
+    menus = [_make_menu(index, f"Menu {index}") for index in range(1, 5)]
 
-    result = build_root_response_object(menus=menus, intro_text=intro)
+    result = build_root_response_object(menus=menus, intro_text="Menu principal:")
 
-    assert result["text"] == intro
     section_list = result["buttons"]
     assert isinstance(section_list, SectionList)
     assert section_list.button_title == "Ver Opções"
     sections = list(section_list.sections)
-    assert len(sections) == 1
-    assert sections[0].title == "Menu"
+    assert [section.title for section in sections] == ["Menu"]
+    assert [(row.title, row.callback_data, row.description) for row in sections[0].rows] == [
+        (f"Menu {index}", f"menu:{index}", None) for index in range(1, 5)
+    ]
 
-    rows = list(sections[0].rows)
-    assert len(rows) == 4
 
-    row_callbacks = [row.callback_data for row in rows]
-    assert row_callbacks == ["menu:1", "menu:2", "menu:3", ACTION_ASK_QUESTION]
+def test_root_with_ten_children_lists_all_ten_rows():
+    menus = [_make_menu(index, f"Menu {index}") for index in range(1, 11)]
 
-    row_map = {r.callback_data: r for r in rows}
-    assert row_map["menu:1"].title == "Graduação"
-    assert row_map["menu:1"].description is None
-    assert row_map["menu:2"].title == "Pós-Graduação"
-    assert row_map["menu:2"].description is None
-    assert row_map["menu:3"].title == "Extensão"
-    assert row_map["menu:3"].description is None
+    rows = _rows(build_root_response_object(menus=menus, intro_text="x")["buttons"])
 
-    question_row = row_map[ACTION_ASK_QUESTION]
-    assert question_row.title == "Fazer uma pergunta"
-    assert question_row.description == "Tirar dúvidas com nosso assistente virtual"
+    assert [row.callback_data for row in rows] == [f"menu:{index}" for index in range(1, 11)]
 
 
 def _back_button(parent_id: int = 1) -> Button:
@@ -138,7 +114,6 @@ def test_build_child_response_object_with_two_submenus_produces_child_buttons_th
         ("Calendário", "menu:11"),
         ("Voltar", "menu:1"),
     ]
-    assert ACTION_ASK_QUESTION not in [b.callback_data for b in buttons]
     assert ACTION_ROOT not in [b.callback_data for b in buttons]
 
 
@@ -211,14 +186,6 @@ def test_the_leaf_suffix_is_the_one_the_forms_reserve_room_for():
     assert len(build_leaf_response_object(leaf)["text"]) == MAX_BODY_LEN
 
 
-def test_root_menu_buttons_never_exceed_the_quick_reply_limit():
-    menus = [_make_menu(1, "A"), _make_menu(2, "B"), _make_menu(3, "C")]
-
-    buttons = build_root_menu_buttons(menus)
-
-    assert [b.callback_data for b in buttons] == ["menu:1", "menu:2", "menu:3"]
-
-
 def _menu_with_distinct_selection_name() -> Menu:
     return Menu(id=7, name="nome_interno", selection_name="Texto do botão", message="m", parent_id=1)
 
@@ -256,14 +223,12 @@ def _rows(section_list) -> list:
     return list(list(section_list.sections)[0].rows)
 
 
-def test_root_list_is_truncated_to_ten_rows_keeping_the_ask_option_last():
+def test_root_list_is_truncated_to_ten_rows():
     menus = [_make_menu(index, f"Menu {index}") for index in range(1, 13)]
 
     rows = _rows(build_root_menu_section_list(menus))
 
-    assert len(rows) == 10
-    assert [row.callback_data for row in rows[:9]] == [f"menu:{index}" for index in range(1, 10)]
-    assert rows[-1].callback_data == ACTION_ASK_QUESTION
+    assert [row.callback_data for row in rows] == [f"menu:{index}" for index in range(1, 11)]
 
 
 def test_child_list_is_truncated_to_nine_rows_keeping_back_last():
@@ -279,8 +244,7 @@ def test_lists_at_the_limit_are_not_truncated():
     root_rows = _rows(build_root_menu_section_list([_make_menu(index, "M") for index in range(1, 10)]))
     child_list = build_child_menu_section_list([_make_menu(index, "M", 99) for index in range(1, 10)], _back_button(99))
 
-    assert (len(root_rows), len(_rows(child_list)) + len(_navigation_rows(child_list))) == (10, 10)
-    assert root_rows[-1].callback_data == ACTION_ASK_QUESTION
+    assert (len(root_rows), len(_rows(child_list)) + len(_navigation_rows(child_list))) == (9, 10)
 
 
 def _navigation_rows(section_list) -> list:
@@ -328,8 +292,3 @@ def test_child_list_rows_carry_no_internal_name():
     assert "menu_interno" not in _all_row_text(payload["buttons"])
     assert [row.title for row in _rows(payload["buttons"])] == [f"Opção {index}" for index in range(1, 7)]
 
-
-def test_the_ask_row_keeps_its_fixed_description():
-    rows = _rows(build_root_menu_section_list(_internal_names(4, None)))
-
-    assert rows[-1].description == "Tirar dúvidas com nosso assistente virtual"

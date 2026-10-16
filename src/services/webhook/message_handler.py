@@ -24,7 +24,6 @@ from src.services.menu_service import (
     get_submenus,
 )
 from src.services.session_service import (
-    SESSION_MODE_CONVERSATIONAL,
     get_or_create_session,
     update_session_activity,
 )
@@ -39,11 +38,9 @@ logger = logging.getLogger("Chatbot")
 MAX_QUICK_REPLY_BUTTONS = 3
 MAX_BUTTON_TITLE_LEN = 20
 MAX_ROW_TITLE_LEN = 24
-MAX_ROW_DESC_LEN = 72
 MAX_LIST_ROWS = 10
 
 # Constantes de ação e prefixos de callback
-ACTION_ASK_QUESTION = "action:ask_question"
 ACTION_ROOT = "action:root"
 PREFIX_MENU = "menu:"
 
@@ -54,9 +51,6 @@ MENU_SECTION_TITLE = "Menu"
 NAVIGATION_SECTION_TITLE = "Navegação"
 
 NO_ROOT_MESSAGE = "Atendimento indisponível no momento. Tente novamente mais tarde."
-MODEL_UNAVAILABLE_MESSAGE = (
-    "Nosso assistente está temporariamente indisponível. Escolha uma opção do menu:"
-)
 
 # Máximo de dígitos aceito em um identificador de menu (cabe no INTEGER do SQLite e
 # evita o limite de conversão de strings numéricas longas do Python)
@@ -102,7 +96,7 @@ def handle_message(client: WhatsApp, msg: Message, session: Session) -> None:
 
     Esteira arquitetural de execução:
     1. Extração do contexto base da mensagem recebida (MessageContext).
-    2. Recuperação da sessão (TTL avaliado) e identificação do modo de atendimento.
+    2. Recuperação da sessão (TTL avaliado).
     3. Registro da mensagem recebida no histórico de auditoria.
     4. Construção e despacho da resposta ao usuário via WhatsApp.
     5. Registro da resposta enviada e da atividade da sessão.
@@ -123,7 +117,7 @@ def handle_message(client: WhatsApp, msg: Message, session: Session) -> None:
     user_session = get_or_create_session(session, context.user_id, context.wa_id)
     save_user_log(context)
 
-    response_payload = build_mode_response(session, user_session.mode)
+    response_payload = build_root_view(session)
 
     msg_id = dispatch_reply(
         client=client,
@@ -167,9 +161,7 @@ def handle_callback(
     logger.info(f"[CALLBACK] Usuário: {mask_user_id(context.user_id)} | Menu: {menu_id}")
 
     current_menu_id = None
-    if payload == ACTION_ASK_QUESTION:
-        send_root_menu(client, context, intro_text=MODEL_UNAVAILABLE_MESSAGE)
-    elif menu_id is not None:
+    if menu_id is not None:
         current_menu_id = handle_menu_navigation(client, context, menu_id)
     else:
         send_root_menu(client, context)
@@ -359,25 +351,6 @@ def build_root_view(session: Session, intro_text: str | None = None) -> dict[str
     )
 
 
-def build_mode_response(session: Session, mode: str) -> dict[str, Any]:
-    """
-    Gera a carga de resposta correspondente ao modo de atendimento ativo do usuário.
-
-    Args:
-        session: Sessão ativa do banco de dados.
-        mode: Modo ativo identificado (SESSION_MODE_MENU ou SESSION_MODE_CONVERSATIONAL).
-
-    Returns:
-        Dicionário contendo as chaves 'text' e opcionalmente 'buttons' para despacho.
-    """
-    if mode == SESSION_MODE_CONVERSATIONAL:
-        # Modo conversacional desativado temporariamente (Ollama não conectado):
-        # Dispara mensagem de indisponibilidade com as opções do menu raiz para recuperação.
-        return build_root_view(session, intro_text=MODEL_UNAVAILABLE_MESSAGE)
-
-    return build_root_view(session)
-
-
 def dispatch_reply(
     client: WhatsApp,
     to: str,
@@ -524,20 +497,24 @@ def build_root_response_object(
     intro_text: str,
 ) -> dict[str, Any]:
     """
-    Constrói o payload para o menu raiz, incluindo a opção de fazer pergunta ao modelo.
+    Constrói o payload para o menu raiz, que apresenta apenas os filhos diretos da raiz.
 
     Args:
         menus: Sequência de menus raiz a serem apresentados.
         intro_text: Texto principal exibido no corpo da mensagem.
 
     Returns:
-        Dicionário contendo as chaves 'text' e 'buttons' para despacho via PyWa.
+        Dicionário com 'text' apenas, se não houver filhos (a Meta recusa mensagem interativa
+        sem opções); com 'text' e botões de resposta rápida, se houver até três filhos; com 'text'
+        e uma lista de seções, se houver mais.
     """
-    total_options = len(menus) + 1
-    if total_options <= MAX_QUICK_REPLY_BUTTONS:
+    if not menus:
+        return {"text": intro_text}
+
+    if len(menus) <= MAX_QUICK_REPLY_BUTTONS:
         return {
             "text": intro_text,
-            "buttons": build_root_menu_buttons(menus),
+            "buttons": build_child_menu_buttons(menus),
         }
 
     return {
@@ -575,27 +552,6 @@ def build_child_response_object(
     }
 
 
-def build_root_menu_buttons(menus: Sequence[Menu]) -> list[Button]:
-    """
-    Monta botões para o menu raiz, incluindo o botão de pergunta ao modelo.
-
-    Args:
-        menus: Sequência de registros de menu.
-
-    Returns:
-        Lista de botões contendo menus e a opção de pergunta.
-    """
-    buttons = build_child_menu_buttons(menus)
-    if len(buttons) < MAX_QUICK_REPLY_BUTTONS:
-        buttons.append(
-            Button(
-                title="Fazer Pergunta"[:MAX_BUTTON_TITLE_LEN],
-                callback_data=ACTION_ASK_QUESTION,
-            )
-        )
-    return buttons
-
-
 def build_child_menu_buttons(menus: Sequence[Menu]) -> list[Button]:
     """
     Monta a lista de botões contendo exclusivamente os menus filhos.
@@ -624,8 +580,8 @@ def limit_list_menus(menus: Sequence[Menu], reserved_rows: int) -> Sequence[Menu
 
     Args:
         menus: Menus candidatos a linhas da lista.
-        reserved_rows: Linhas fixas da lista que não vêm de menus ("Fazer uma pergunta" na raiz,
-            "Voltar" nos demais menus).
+        reserved_rows: Linhas fixas da lista que não vêm de menus (0 na raiz,
+            1 para "Voltar" nos demais menus).
 
     Returns:
         Os primeiros menus que cabem, mantendo a ordem.
@@ -641,30 +597,22 @@ def limit_list_menus(menus: Sequence[Menu], reserved_rows: int) -> Sequence[Menu
 
 def build_root_menu_section_list(menus: Sequence[Menu]) -> SectionList:
     """
-    Monta a lista de seções para o menu raiz com a opção de pergunta inclusa.
+    Monta a lista de seções do menu raiz: uma única seção "Menu" só com os filhos da raiz.
 
     Args:
         menus: Sequência de registros de menu raiz.
 
     Returns:
-        Instância de SectionList configurada com menus e a linha de pergunta.
+        Instância de SectionList com uma linha por filho, sem descrição.
     """
     rows = [
         SectionRow(
             title=(m.selection_name or m.name)[:MAX_ROW_TITLE_LEN],
             callback_data=f"{PREFIX_MENU}{m.id}",
         )
-        for m in limit_list_menus(menus, reserved_rows=1)
+        for m in limit_list_menus(menus, reserved_rows=0)
     ]
-    rows.append(
-        SectionRow(
-            title="Fazer uma pergunta"[:MAX_ROW_TITLE_LEN],
-            callback_data=ACTION_ASK_QUESTION,
-            description="Tirar dúvidas com nosso assistente virtual"[:MAX_ROW_DESC_LEN],
-        )
-    )
-    section = Section(title=MENU_SECTION_TITLE, rows=rows)
-    return SectionList(button_title="Ver Opções", sections=[section])
+    return SectionList(button_title="Ver Opções", sections=[Section(title=MENU_SECTION_TITLE, rows=rows)])
 
 
 def build_child_menu_section_list(menus: Sequence[Menu], back: Button) -> SectionList:

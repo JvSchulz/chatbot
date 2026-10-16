@@ -12,7 +12,7 @@ from pywa.types import SectionList
 from src.models.chat_history_model import ChatHistory
 from src.models.menu_model import Menu
 from src.models.user_session_model import UserSession
-from src.services.webhook.message_handler import ACTION_ASK_QUESTION, ACTION_ROOT
+from src.services.webhook.message_handler import ACTION_ROOT
 from tests.conftest import sign_webhook
 from main import app
 
@@ -73,7 +73,7 @@ def _rows(session: Session) -> list[ChatHistory]:
     return list(session.exec(select(ChatHistory).order_by(ChatHistory.id)).all())  # type: ignore
 
 
-def test_text_lists_the_root_children_and_the_ask_option(
+def test_text_lists_only_the_root_children(
     client: TestClient, session: Session, outbound: list[dict], webhook_body, tree
 ):
     status = _post(client, webhook_body("text", "Olá!", "554798765432", "BR.1000000000006"))
@@ -83,7 +83,7 @@ def test_text_lists_the_root_children_and_the_ask_option(
     assert outbound[0]["to"] == "5547998765432"
     assert outbound[0]["text"] == ROOT_MESSAGE
     assert [b.callback_data for b in outbound[0]["buttons"]] == [
-        f"menu:{tree['grad'].id}", f"menu:{tree['office'].id}", ACTION_ASK_QUESTION,
+        f"menu:{tree['grad'].id}", f"menu:{tree['office'].id}",
     ]
     user_row, bot_row = _rows(session)
     assert (user_row.role, user_row.user_id, user_row.wa_id, user_row.content) == (
@@ -92,7 +92,7 @@ def test_text_lists_the_root_children_and_the_ask_option(
     assert (bot_row.role, bot_row.content) == ("bot", ROOT_MESSAGE)
 
 
-def test_button_to_a_submenu_lists_its_children_then_back_without_the_ask_option(
+def test_button_to_a_submenu_lists_its_children_then_back(
     client: TestClient, session: Session, outbound: list[dict], webhook_body, tree
 ):
     body = webhook_body("button", f"menu:{tree['grad'].id}", "554798765432", "BR.1000000000006", "Grad")
@@ -165,7 +165,9 @@ def test_back_from_depth_one_sends_the_root_menu(
     assert _post(client, body) == 200
 
     assert outbound[0]["text"] == ROOT_MESSAGE
-    assert outbound[0]["buttons"][-1].callback_data == ACTION_ASK_QUESTION
+    assert [b.callback_data for b in outbound[0]["buttons"]] == [
+        f"menu:{tree['grad'].id}", f"menu:{tree['office'].id}",
+    ]
 
 
 def test_back_from_depth_two_sends_the_parent_submenu(
@@ -217,26 +219,44 @@ def test_deleted_menu_button_falls_back_to_the_unavailable_notice(
     assert _rows(session)[0].menu_id is None
 
 
-def test_ask_question_returns_the_unavailable_notice_with_the_root_options(
+def test_a_stale_ask_question_button_returns_the_root_menu(
     client: TestClient, session: Session, outbound: list[dict], webhook_body, tree
 ):
-    body = webhook_body("button", ACTION_ASK_QUESTION, "554798765432", "BR.1000000000006", "Fazer Pergunta")
+    body = webhook_body("button", "action:ask_question", "554798765432", "BR.1000000000006", "Fazer Pergunta")
 
     assert _post(client, body) == 200
 
-    assert "temporariamente indisponível" in outbound[0]["text"]
-    assert [b.callback_data for b in outbound[0]["buttons"]][-1] == ACTION_ASK_QUESTION
+    assert outbound[0]["text"] == ROOT_MESSAGE
+    assert [b.callback_data for b in outbound[0]["buttons"]] == [
+        f"menu:{tree['grad'].id}", f"menu:{tree['office'].id}",
+    ]
 
 
-def test_three_children_are_sent_as_a_section_list(
+def test_three_children_are_sent_as_three_buttons(
     client: TestClient, session: Session, outbound: list[dict], webhook_body, tree
 ):
     session.add(Menu(name="Extensão", selection_name="Ext", message="Projetos", parent_id=tree["root"].id))
     session.commit()
 
-    assert _post(client, webhook_body("text", "Olá", "554798765432", "BR.1000000000006")) == 200
+    assert _post(client, webhook_body("text", "Oi", "554798765432", "BR.1000000000006")) == 200
 
-    assert isinstance(outbound[0]["buttons"], SectionList)
+    assert [b.title for b in outbound[0]["buttons"]] == ["Ext", "Grad", "Sec"]
+
+
+def test_four_children_are_sent_as_a_four_row_section_list(
+    client: TestClient, session: Session, outbound: list[dict], webhook_body, tree
+):
+    for name in ("Extensão", "Pesquisa"):
+        session.add(Menu(name=name, selection_name=name, message="Projetos", parent_id=tree["root"].id))
+    session.commit()
+
+    assert _post(client, webhook_body("text", "Oi", "554798765432", "BR.1000000000006")) == 200
+
+    section_list = outbound[0]["buttons"]
+    assert isinstance(section_list, SectionList)
+    sections = list(section_list.sections)
+    assert [section.title for section in sections] == ["Menu"]
+    assert len(list(sections[0].rows)) == 4
 
 
 def test_database_failure_during_a_webhook_logs_no_sql(

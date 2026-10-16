@@ -12,9 +12,7 @@ from src.models.chat_history_model import ChatHistory
 from src.models.menu_model import Menu
 from src.models.user_session_model import UserSession
 from src.services.webhook.message_handler import (
-    ACTION_ASK_QUESTION,
     ACTION_ROOT,
-    MODEL_UNAVAILABLE_MESSAGE,
     NO_ROOT_MESSAGE,
     handle_callback,
     handle_message,
@@ -22,6 +20,7 @@ from src.services.webhook.message_handler import (
 )
 
 ROOT_MESSAGE = "Bem-vindo ao atendimento"
+STALE_ASK_QUESTION_PAYLOAD = "action:ask_question"
 BSUID = "BR.1234567890123"
 
 
@@ -84,17 +83,19 @@ def test_callback_action_root_sends_the_root_message(
 
     sent = _sent(mock_wa_client)
     assert sent["text"] == ROOT_MESSAGE
-    assert [b.callback_data for b in sent["buttons"]][-1] == ACTION_ASK_QUESTION
+    assert [b.callback_data for b in sent["buttons"]] == [
+        f"menu:{tree['courses'].id}", f"menu:{tree['office'].id}",
+    ]
 
 
-def test_callback_ask_question_sends_the_unavailable_notice_with_the_root_options(
+def test_callback_with_a_stale_ask_question_payload_sends_the_root_view(
     session: Session, mock_wa_client: MagicMock, callback_factory, tree
 ):
-    handle_callback(mock_wa_client, callback_factory(data=ACTION_ASK_QUESTION), session)
+    handle_callback(mock_wa_client, callback_factory(data=STALE_ASK_QUESTION_PAYLOAD), session)
 
     sent = _sent(mock_wa_client)
-    assert sent["text"] == MODEL_UNAVAILABLE_MESSAGE
-    assert [b.callback_data for b in sent["buttons"]][:2] == [
+    assert sent["text"] == ROOT_MESSAGE
+    assert [b.callback_data for b in sent["buttons"]] == [
         f"menu:{tree['courses'].id}", f"menu:{tree['office'].id}",
     ]
 
@@ -116,7 +117,7 @@ def test_callback_menu_logs_the_click_and_the_reply_and_tracks_the_menu(
     assert _stored_session(session).current_menu_id == engineering.id
 
 
-@pytest.mark.parametrize("payload", [ACTION_ROOT, ACTION_ASK_QUESTION, "menu:abc"])
+@pytest.mark.parametrize("payload", [ACTION_ROOT, STALE_ASK_QUESTION_PAYLOAD, "menu:abc"])
 def test_returning_to_the_root_clears_the_current_menu(
     session: Session, mock_wa_client: MagicMock, callback_factory, tree, payload: str
 ):
@@ -280,7 +281,7 @@ def test_text_message_sends_the_root_view_and_logs_both_rows(
     assert sent["to"] == "5511999998888"
     assert sent["text"] == ROOT_MESSAGE
     assert [b.callback_data for b in sent["buttons"]] == [
-        f"menu:{tree['courses'].id}", f"menu:{tree['office'].id}", ACTION_ASK_QUESTION,
+        f"menu:{tree['courses'].id}", f"menu:{tree['office'].id}",
     ]
     user_row, bot_row = _rows(session)
     assert (user_row.role, user_row.user_id, user_row.wa_id) == ("user", BSUID, "5511999998888")
@@ -327,13 +328,12 @@ def test_text_message_stores_the_wa_id_on_the_session(
     assert _stored_session(session).wa_id == "5511999998888"
 
 
-def test_text_message_after_expiry_resets_a_conversational_session_and_saves_it(
+def test_text_message_after_expiry_clears_the_current_menu_and_saves_it(
     session: Session, mock_wa_client: MagicMock, message_factory, tree
 ):
     session.add(
         UserSession(
             user_id=BSUID,
-            mode="conversational",
             current_menu_id=tree["courses"].id,
             last_interaction_at=datetime.now(timezone.utc) - timedelta(minutes=16),
         )
@@ -343,17 +343,16 @@ def test_text_message_after_expiry_resets_a_conversational_session_and_saves_it(
     handle_message(mock_wa_client, message_factory(), session)
 
     assert _sent(mock_wa_client)["text"] == ROOT_MESSAGE
-    stored = _stored_session(session)
-    assert (stored.mode, stored.current_menu_id) == ("menu", None)
+    assert _stored_session(session).current_menu_id is None
 
 
-def test_text_message_in_an_active_conversational_session_gets_the_unavailable_notice(
+def test_text_message_inside_a_submenu_still_sends_the_root_view(
     session: Session, mock_wa_client: MagicMock, message_factory, tree
 ):
     session.add(
         UserSession(
             user_id=BSUID,
-            mode="conversational",
+            current_menu_id=tree["courses"].id,
             last_interaction_at=datetime.now(timezone.utc) - timedelta(minutes=5),
         )
     )
@@ -361,7 +360,7 @@ def test_text_message_in_an_active_conversational_session_gets_the_unavailable_n
 
     handle_message(mock_wa_client, message_factory(), session)
 
-    assert _sent(mock_wa_client)["text"] == MODEL_UNAVAILABLE_MESSAGE
+    assert _sent(mock_wa_client)["text"] == ROOT_MESSAGE
 
 
 def test_text_message_without_root_replies_unavailable(

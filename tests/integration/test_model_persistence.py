@@ -71,7 +71,7 @@ def test_user_session_columns(session: Session):
     columns = {column["name"] for column in inspect(session.get_bind()).get_columns("user_sessions")}
 
     assert columns == {
-        "id", "user_id", "wa_id", "mode", "current_menu_id",
+        "id", "user_id", "wa_id", "current_menu_id",
         "last_interaction_at", "created_at", "updated_at",
     }
 

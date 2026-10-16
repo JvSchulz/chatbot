@@ -65,6 +65,15 @@ def test_seed_root_has_a_greeting_message_and_selection_name(tmp_path: Path):
         assert root.selection_name.strip() != ""
 
 
+def test_seed_root_message_does_not_mention_asking_questions(tmp_path: Path):
+    database = tmp_path / "seed.db"
+
+    seed_menus(database)
+
+    with _open(database) as session:
+        assert "pergunta" not in _by_name(session)["menu_inicio"].message.lower()
+
+
 def test_seed_does_nothing_when_menus_already_exist(tmp_path: Path, capsys):
     database = tmp_path / "seed.db"
     seed_menus(database)

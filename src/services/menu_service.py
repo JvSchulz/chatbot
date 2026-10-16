@@ -8,8 +8,9 @@ from src.models.menu_model import Menu
 
 MENU_FIELDS_REQUIRED_MESSAGE = "Preencha nome, texto de seleção e mensagem."
 
-# Uma lista interativa do WhatsApp aceita no máximo 10 linhas; uma delas é sempre reservada
-# ("Fazer uma pergunta" na raiz, "Voltar" nos demais menus), então todo pai comporta 9 filhos.
+# Uma lista interativa do WhatsApp aceita no máximo 10 linhas e os menus que não são a raiz
+# reservam uma para "Voltar"; a raiz adota o mesmo limite para que um menu possa mudar de nível
+# sob uma única regra, então todo pai comporta 9 filhos.
 WHATSAPP_LIST_LIMIT = 10
 MENU_CHILDREN_LIMIT = WHATSAPP_LIST_LIMIT - 1
 MENU_CHILDREN_LIMIT_MESSAGE = (

@@ -3,7 +3,7 @@
 Seed script for Chatbot menus table.
 Populates the menus table with one root menu (the greeting container) whose children are the
 top-level options, plus a realistic hierarchical menu structure for testing navigation
-(depth 0, 1, 2 and 3), button/section list responses, and LLM fallback context.
+(depth 0, 1, 2 and 3), and button/section list responses.
 
 Usage (from the project root):
     python -m scripts.seed_menus           # Seeds only if table is empty
@@ -27,7 +27,7 @@ MENUS_DATA = [
         "selection_name": "Início",
         "message": (
             "👋 *Bem-vindo ao atendimento da UDESC!*\n\n"
-            "Escolha uma das opções abaixo ou toque em *Fazer Pergunta* para falar com nosso assistente:"
+            "Escolha uma das opções abaixo:"
         ),
         "parent_id": None,
     },
