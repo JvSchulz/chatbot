@@ -104,19 +104,19 @@ def test_options_created_out_of_order_are_listed_and_sent_sorted_with_confirmati
 ):
     assert _create_titled(auth_client, "inicio", "Início").status_code == 200
     root_id = _menu_id(session, "inicio")
-    created = _create_titled(auth_client, "tutoria", "2-Tutoria", root_id)
+    created = _create_titled(auth_client, "2 tutoria", "Tutoria", root_id)
     assert "Menu criado com sucesso." in created.text
-    for name, title in (("monitoria", "1-Monitoria"), ("dez", "10-Estágio"), ("nove", "9-Extensão")):
+    for name, title in (("1 monitoria", "Monitoria"), ("10 estagio", "Estágio"), ("9 extensao", "Extensão")):
         assert _create_titled(auth_client, name, title, root_id).status_code == 200
 
     names = re.findall(r"<strong>([^<]*)</strong>", auth_client.get("/menus/lista").text)
-    assert names == ["dez", "inicio", "monitoria", "nove", "tutoria"]
+    assert names == ["inicio", "1 monitoria", "2 tutoria", "9 extensao", "10 estagio"]
 
     assert _post_webhook("text", "Olá", webhook_body) == 200
     rows = list(list(outbound[-1]["buttons"].sections)[0].rows)
-    assert [row.title for row in rows[:-1]] == ["1-Monitoria", "2-Tutoria", "9-Extensão", "10-Estágio"]
+    assert [row.title for row in rows[:-1]] == ["Monitoria", "Tutoria", "Extensão", "Estágio"]
 
-    tutoring_id = _menu_id(session, "tutoria")
+    tutoring_id = _menu_id(session, "2 tutoria")
     assert _post_webhook("button", f"menu:{tutoring_id}", webhook_body) == 200
     assert [(b.title, b.callback_data) for b in outbound[-1]["buttons"]] == [
         ("Voltar", f"menu:{root_id}"),

@@ -70,14 +70,14 @@ def test_a_huge_digit_run_does_not_raise():
     assert menu_sort_key("9" * 6000)[0][0] == 0
 
 
-def test_submenus_are_ordered_by_selection_name_not_by_creation(session: Session):
+def test_submenus_are_ordered_by_internal_name_not_by_creation(session: Session):
     parent = add(session, "pai")
-    add(session, "a", "10 - X", parent.id)
-    add(session, "b", "Ácido", parent.id)
-    add(session, "c", "2 - Y", parent.id)
-    add(session, "d", "abacate", parent.id)
+    add(session, "10 - X", "a", parent.id)
+    add(session, "Ácido", "b", parent.id)
+    add(session, "2 - Y", "c", parent.id)
+    add(session, "abacate", "d", parent.id)
 
-    assert [m.selection_name for m in get_submenus(session, parent.id)] == [  # type: ignore
+    assert [m.name for m in get_submenus(session, parent.id)] == [  # type: ignore
         "2 - Y",
         "10 - X",
         "abacate",
@@ -85,53 +85,71 @@ def test_submenus_are_ordered_by_selection_name_not_by_creation(session: Session
     ]
 
 
-def test_submenus_are_not_ordered_by_internal_name(session: Session):
+def test_submenus_are_not_ordered_by_selection_name(session: Session):
     parent = add(session, "pai")
-    add(session, "z", "1 - Primeiro", parent.id)
     add(session, "a", "2 - Segundo", parent.id)
+    add(session, "z", "1 - Primeiro", parent.id)
 
-    assert [m.name for m in get_submenus(session, parent.id)] == ["z", "a"]  # type: ignore
+    assert [m.name for m in get_submenus(session, parent.id)] == ["a", "z"]  # type: ignore
 
 
-def test_equal_titles_are_ordered_by_id(session: Session):
+def test_equal_names_are_ordered_by_id(session: Session):
     parent = add(session, "pai")
-    first = add(session, "x", "Mesmo", parent.id)
-    second = add(session, "y", "mesmo", parent.id)
-    third = add(session, "z", "MESMO", parent.id)
+    first = add(session, "Mesmo", "x", parent.id)
+    second = add(session, "mesmo", "y", parent.id)
+    third = add(session, "MESMO", "z", parent.id)
 
     assert [m.id for m in get_submenus(session, parent.id)] == [first.id, second.id, third.id]  # type: ignore
 
 
-def test_root_children_are_ordered_by_selection_name(session: Session):
+def test_root_children_are_ordered_by_internal_name(session: Session):
     root = add(session, "raiz")
-    add(session, "a", "2-Tutoria", root.id)
-    add(session, "b", "1-Monitoria", root.id)
+    add(session, "2-Tutoria", "a", root.id)
+    add(session, "1-Monitoria", "b", root.id)
 
-    assert [m.selection_name for m in get_root_children(session)] == ["1-Monitoria", "2-Tutoria"]
+    assert [m.name for m in get_root_children(session)] == ["1-Monitoria", "2-Tutoria"]
 
 
 def test_the_admin_list_is_ordered_by_internal_name(session: Session):
-    add(session, "menu b")
-    add(session, "Dúvidas")
-    add(session, "Duvidas 2")
-    add(session, "Menu A")
+    root = add(session, "raiz")
+    add(session, "menu b", parent_id=root.id)
+    add(session, "Dúvidas", parent_id=root.id)
+    add(session, "Duvidas 2", parent_id=root.id)
+    add(session, "Menu A", parent_id=root.id)
 
-    assert [m.name for m in get_all_menus(session)] == ["Dúvidas", "Duvidas 2", "Menu A", "menu b"]
+    assert [m.name for m in get_all_menus(session)] == ["raiz", "Dúvidas", "Duvidas 2", "Menu A", "menu b"]
+
+
+def test_the_admin_list_puts_the_root_first(session: Session):
+    root = add(session, "Zz inicio")
+    add(session, "A primeiro", parent_id=root.id)
+    add(session, "B segundo", parent_id=root.id)
+
+    assert [m.name for m in get_all_menus(session)] == ["Zz inicio", "A primeiro", "B segundo"]
 
 
 def test_the_admin_list_is_not_ordered_by_selection_name(session: Session):
-    add(session, "a", "Z")
-    add(session, "b", "A")
+    root = add(session, "raiz")
+    add(session, "a", "Z", root.id)
+    add(session, "b", "A", root.id)
 
-    assert [m.name for m in get_all_menus(session)] == ["a", "b"]
+    assert [m.name for m in get_all_menus(session)] == ["raiz", "a", "b"]
 
 
 def test_the_parent_selector_is_ordered_by_internal_name(session: Session):
-    add(session, "menu 10")
-    add(session, "menu 2")
-    add(session, "Ácido")
+    root = add(session, "raiz")
+    add(session, "menu 10", parent_id=root.id)
+    add(session, "menu 2", parent_id=root.id)
+    add(session, "Ácido", parent_id=root.id)
 
-    assert [m.name for m in get_valid_parent_menus(session)] == ["Ácido", "menu 2", "menu 10"]
+    assert [m.name for m in get_valid_parent_menus(session)] == ["raiz", "Ácido", "menu 2", "menu 10"]
+
+
+def test_the_parent_selector_puts_the_root_first(session: Session):
+    root = add(session, "Zz inicio")
+    add(session, "A primeiro", parent_id=root.id)
+
+    assert [m.name for m in get_valid_parent_menus(session)] == ["Zz inicio", "A primeiro"]
 
 
 def test_the_parent_selector_keeps_the_order_when_excluding_descendants(session: Session):

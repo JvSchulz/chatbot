@@ -180,6 +180,6 @@ def test_split_view_context_valid_parents_exclude_the_selection_and_its_descenda
 
     context = build_menu_split_view_context(session, selected_id=child.id)  # type: ignore
 
-    assert [menu.id for menu in context["valid_parents"]] == [other.id, root.id]
+    assert [menu.id for menu in context["valid_parents"]] == [root.id, other.id]
     assert context["selected_menu"].id == child.id
     assert (context["is_current_root"], context["can_toggle_root"]) == (False, False)
