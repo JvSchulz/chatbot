@@ -9,8 +9,6 @@ from src.models.user_session_model import UserSession
 from src.services.session_service import (
     get_or_create_session,
     update_session_activity,
-    SESSION_MODE_MENU,
-    SESSION_MODE_CONVERSATIONAL,
 )
 
 USER_ID = "BR.1000000000001"
@@ -38,7 +36,6 @@ def test_get_or_create_session_creates_new_record_on_first_lookup(session: Sessi
 
     assert user_session.user_id == USER_ID
     assert user_session.wa_id == "5547998881111"
-    assert user_session.mode == SESSION_MODE_MENU
     assert user_session.current_menu_id is None
     assert before <= user_session.last_interaction_at <= datetime.now(timezone.utc)
 
@@ -62,7 +59,6 @@ def test_get_or_create_session_returns_existing_active_session(session: Session)
     session.add(
         UserSession(
             user_id=USER_ID,
-            mode=SESSION_MODE_CONVERSATIONAL,
             current_menu_id=menu_id,
             last_interaction_at=now - timedelta(minutes=5),
         )
@@ -71,7 +67,6 @@ def test_get_or_create_session_returns_existing_active_session(session: Session)
 
     retrieved = get_or_create_session(session, USER_ID, None)
 
-    assert retrieved.mode == SESSION_MODE_CONVERSATIONAL
     assert retrieved.current_menu_id == menu_id
 
 
@@ -80,7 +75,6 @@ def test_get_or_create_session_persists_ttl_reset(session: Session):
     session.add(
         UserSession(
             user_id=USER_ID,
-            mode=SESSION_MODE_CONVERSATIONAL,
             current_menu_id=menu_id,
             last_interaction_at=datetime.now(timezone.utc) - timedelta(minutes=16),
         )
@@ -89,9 +83,8 @@ def test_get_or_create_session_persists_ttl_reset(session: Session):
 
     retrieved = get_or_create_session(session, USER_ID, None)
 
-    assert (retrieved.mode, retrieved.current_menu_id) == (SESSION_MODE_MENU, None)
-    stored = _stored_session(session, USER_ID)
-    assert (stored.mode, stored.current_menu_id) == (SESSION_MODE_MENU, None)
+    assert retrieved.current_menu_id is None
+    assert _stored_session(session, USER_ID).current_menu_id is None
 
 
 def test_get_or_create_session_keeps_wa_id_current(session: Session):
@@ -116,7 +109,6 @@ def test_get_or_create_session_returns_a_session_bound_to_the_given_db_session(s
     created = get_or_create_session(session, USER_ID, None)
 
     assert created.user_id == USER_ID
-    assert created.mode == SESSION_MODE_MENU
 
 
 def test_update_session_activity_refreshes_timestamp_and_sets_the_menu(session: Session):
@@ -138,7 +130,6 @@ def test_update_session_activity_without_a_menu_clears_the_current_menu(session:
     menu_id = _add_menu(session)
     user_session = UserSession(
         user_id=USER_ID,
-        mode=SESSION_MODE_CONVERSATIONAL,
         current_menu_id=menu_id,
         last_interaction_at=datetime.now(timezone.utc) - timedelta(minutes=10),
     )
@@ -148,7 +139,7 @@ def test_update_session_activity_without_a_menu_clears_the_current_menu(session:
     update_session_activity(user_session, None)
 
     stored = _stored_session(session, USER_ID)
-    assert (stored.mode, stored.current_menu_id) == (SESSION_MODE_CONVERSATIONAL, None)
+    assert stored.current_menu_id is None
     assert datetime.now(timezone.utc) - stored.last_interaction_at < timedelta(minutes=1)
 
 

@@ -8,8 +8,9 @@ from src.models.menu_model import Menu
 
 MENU_FIELDS_REQUIRED_MESSAGE = "Preencha nome, texto de seleção e mensagem."
 
-# Uma lista interativa do WhatsApp aceita no máximo 10 linhas; uma delas é sempre reservada
-# ("Fazer uma pergunta" na raiz, "Voltar" nos demais menus), então todo pai comporta 9 filhos.
+# Uma lista interativa do WhatsApp aceita no máximo 10 linhas e os menus que não são a raiz
+# reservam uma para "Voltar"; a raiz adota o mesmo limite para que um menu possa mudar de nível
+# sob uma única regra, então todo pai comporta 9 filhos.
 WHATSAPP_LIST_LIMIT = 10
 MENU_CHILDREN_LIMIT = WHATSAPP_LIST_LIMIT - 1
 MENU_CHILDREN_LIMIT_MESSAGE = (
@@ -130,9 +131,9 @@ def _sorted_by_name(menus: Sequence[Menu]) -> list[Menu]:
     return sorted(menus, key=lambda menu: (menu_sort_key(menu.name), menu.id or 0))
 
 
-def _sorted_by_selection_name(menus: Sequence[Menu]) -> list[Menu]:
-    """Ordena os menus pelo texto de seleção com a chave natural; empates seguem o id."""
-    return sorted(menus, key=lambda menu: (menu_sort_key(menu.selection_name), menu.id or 0))
+def _sorted_root_first(menus: Sequence[Menu]) -> list[Menu]:
+    """Ordena os menus pelo nome interno, com os menus sem pai (a raiz) antes dos demais."""
+    return sorted(menus, key=lambda menu: (menu.parent_id is not None, menu_sort_key(menu.name), menu.id or 0))
 
 
 def is_root_toggle_allowed(has_root: bool, is_current_root: bool) -> bool:
@@ -151,7 +152,7 @@ def is_root_toggle_allowed(has_root: bool, is_current_root: bool) -> bool:
 
 def get_all_menus(session: Session) -> Sequence[Menu]:
     """
-    Retorna todos os menus ordenados pelo nome com a chave natural (sem distinguir caixa e acentos).
+    Retorna todos os menus, a raiz primeiro e os demais pelo nome com a chave natural.
 
     Args:
         session: Sessão ativa do banco de dados.
@@ -159,7 +160,7 @@ def get_all_menus(session: Session) -> Sequence[Menu]:
     Returns:
         Sequência de todos os menus cadastrados.
     """
-    return _sorted_by_name(session.exec(select(Menu)).all())
+    return _sorted_root_first(session.exec(select(Menu)).all())
 
 
 def get_root_menus(session: Session) -> Sequence[Menu]:
@@ -214,9 +215,9 @@ def get_submenus(session: Session, parent_id: int) -> Sequence[Menu]:
         parent_id: Identificador do menu pai.
 
     Returns:
-        Submenus ordenados pelo texto de seleção com a chave natural.
+        Submenus ordenados pelo nome interno com a chave natural.
     """
-    return _sorted_by_selection_name(session.exec(select(Menu).where(Menu.parent_id == parent_id)).all())
+    return _sorted_by_name(session.exec(select(Menu).where(Menu.parent_id == parent_id)).all())
 
 
 def get_menu_by_id(session: Session, menu_id: int) -> Menu | None:
@@ -245,7 +246,7 @@ def get_valid_parent_menus(
         exclude_id: Identificador do menu sendo editado (exclui ele e seus descendentes).
 
     Returns:
-        Menus que podem atuar como pai sem gerar ciclos, ordenados pelo nome.
+        Menus que podem atuar como pai sem gerar ciclos, a raiz primeiro e os demais pelo nome.
     """
     all_menus = get_all_menus(session)
     if exclude_id is None:

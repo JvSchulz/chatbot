@@ -19,7 +19,7 @@ from src.services.menu_service import (
 
 def test_get_all_menus_returns_ordered_list(session: Session):
     """
-    get_all_menus deve retornar todos os menus cadastrados.
+    get_all_menus deve retornar todos os menus cadastrados, com a raiz antes dos demais.
     """
     m1 = Menu(name="B Menu", selection_name="B", message="Msg B", parent_id=None)
     m2 = Menu(name="A Menu", selection_name="A", message="Msg A", parent_id=1)
@@ -28,9 +28,7 @@ def test_get_all_menus_returns_ordered_list(session: Session):
     session.commit()
 
     menus = get_all_menus(session)
-    assert len(menus) == 2
-    assert menus[0].name == "A Menu"
-    assert menus[1].name == "B Menu"
+    assert [menu.name for menu in menus] == ["B Menu", "A Menu"]
 
 
 def test_get_root_menu_returns_single_root(session: Session):

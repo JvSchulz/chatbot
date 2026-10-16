@@ -13,7 +13,7 @@ from src.models.user_session_model import UserSession
 from scripts.seed_menus import MENUS_DATA, main, seed_menus
 from src.services.menu_service import MAX_MESSAGE_LEN, MAX_SELECTION_NAME_LEN, MENU_CHILDREN_LIMIT, menu_sort_key
 
-TOP_LEVEL = ["menu_cursos", "menu_secretaria", "menu_suporte", "menu_atendente"]
+TOP_LEVEL = ["1 menu_cursos", "2 menu_secretaria", "3 menu_suporte", "4 menu_atendente"]
 
 
 def _open(path: Path) -> Session:
@@ -48,10 +48,10 @@ def test_seed_keeps_the_existing_subtrees(tmp_path: Path):
     with _open(database) as session:
         menus = _by_name(session)
         assert len(menus) == 17
-        assert menus["curso_cc"].parent_id == menus["menu_cursos"].id
-        assert menus["sec_documentos"].parent_id == menus["menu_secretaria"].id
-        assert menus["doc_trancamento"].parent_id == menus["sec_documentos"].id
-        assert menus["sup_labs"].parent_id == menus["menu_suporte"].id
+        assert menus["1.1 curso_cc"].parent_id == menus["1 menu_cursos"].id
+        assert menus["2.2 sec_documentos"].parent_id == menus["2 menu_secretaria"].id
+        assert menus["2.2.3 doc_trancamento"].parent_id == menus["2.2 sec_documentos"].id
+        assert menus["3.3 sup_labs"].parent_id == menus["3 menu_suporte"].id
 
 
 def test_seed_root_has_a_greeting_message_and_selection_name(tmp_path: Path):
@@ -63,6 +63,15 @@ def test_seed_root_has_a_greeting_message_and_selection_name(tmp_path: Path):
         root = _by_name(session)["menu_inicio"]
         assert root.message.strip() != ""
         assert root.selection_name.strip() != ""
+
+
+def test_seed_root_message_does_not_mention_asking_questions(tmp_path: Path):
+    database = tmp_path / "seed.db"
+
+    seed_menus(database)
+
+    with _open(database) as session:
+        assert "pergunta" not in _by_name(session)["menu_inicio"].message.lower()
 
 
 def test_seed_does_nothing_when_menus_already_exist(tmp_path: Path, capsys):
@@ -82,7 +91,7 @@ def test_reset_replaces_menus_even_with_history_and_sessions_referencing_them(tm
     database = tmp_path / "seed.db"
     seed_menus(database)
     with _open(database) as session:
-        leaf = _by_name(session)["doc_atestado"]
+        leaf = _by_name(session)["2.2.1 doc_atestado"]
         session.add(ChatHistory(user_id="BR.1000000000001", role="user", content="Atestado", menu_id=leaf.id))
         session.add(UserSession(user_id="BR.1000000000001", current_menu_id=leaf.id))
         session.commit()
@@ -134,3 +143,14 @@ def test_seed_keeps_the_numbered_titles_in_reading_order():
 
     for titles in by_parent.values():
         assert sorted(titles, key=menu_sort_key) == titles
+
+
+def test_seed_names_sort_in_the_same_order_as_the_numbered_titles():
+    by_parent: dict[int, list[dict]] = {}
+    for item in MENUS_DATA:
+        if item["parent_id"] is not None:
+            by_parent.setdefault(item["parent_id"], []).append(item)
+
+    for siblings in by_parent.values():
+        by_name = sorted(siblings, key=lambda item: menu_sort_key(item["name"]))
+        assert [item["selection_name"] for item in by_name] == [item["selection_name"] for item in siblings]

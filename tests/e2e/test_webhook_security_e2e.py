@@ -72,6 +72,22 @@ def test_signed_text_webhook_is_processed_and_logged(
     assert len(outbound) == 1
 
 
+def test_signed_text_webhook_with_a_three_child_root_returns_three_buttons(
+    client: TestClient, session: Session, outbound: list[dict], webhook_body
+):
+    root = Menu(name="raiz", selection_name="Raiz", message="Escolha:")
+    session.add(root)
+    session.commit()
+    for name in ("A", "B", "C"):
+        session.add(Menu(name=name, selection_name=name, message=name, parent_id=root.id))
+    session.commit()
+    body = webhook_body("text", "Oi", "554798765432")
+
+    assert _post_webhook(client, body, sign_webhook(body)) == 200
+
+    assert [b.title for b in outbound[0]["buttons"]] == ["A", "B", "C"]
+
+
 def _forged_signature(body: bytes) -> str:
     """Assinatura bem formada, mas calculada com uma chave que não é a APP_SECRET."""
     return "sha256=" + hmac.new(b"outra-chave", body, hashlib.sha256).hexdigest()

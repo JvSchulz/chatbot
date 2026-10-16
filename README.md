@@ -2,10 +2,9 @@
 
 Chatbot de atendimento no WhatsApp, com menus hierárquicos configuráveis e um painel web de administração.
 O bot responde pela WhatsApp Cloud API (biblioteca PyWa); o painel (FastAPI, Jinja2 e HTMX) gerencia menus,
-usuários administradores e mostra o histórico das conversas. O atendimento por modelo de linguagem (Ollama)
-ainda não está ligado: a opção "Fazer uma pergunta" responde com um aviso e devolve o menu principal.
+usuários administradores e mostra o histórico das conversas.
 
-O desenho completo está em [arquitetura llm.md](arquitetura%20llm.md).
+O desenho completo está em [arquitetura.md](arquitetura.md).
 
 ## Pré-requisitos
 
@@ -48,7 +47,9 @@ e o erro lista todas as que faltam.
 ## Banco de dados
 
 O SQLite fica em `database.db` na raiz do projeto (fora do git). As tabelas são criadas na primeira
-inicialização. Para popular os menus com uma árvore de exemplo:
+inicialização. Um `database.db` criado antes da remoção do modo de atendimento tem a coluna `mode`
+em `user_sessions` e falha ao gravar sessões: apague o arquivo (e `database.db-wal` e `database.db-shm`) e
+recrie os menus. Para popular os menus com uma árvore de exemplo:
 
 ```bash
 python -m scripts.seed_menus           # só se ainda não houver menus

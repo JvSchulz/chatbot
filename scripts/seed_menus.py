@@ -3,7 +3,7 @@
 Seed script for Chatbot menus table.
 Populates the menus table with one root menu (the greeting container) whose children are the
 top-level options, plus a realistic hierarchical menu structure for testing navigation
-(depth 0, 1, 2 and 3), button/section list responses, and LLM fallback context.
+(depth 0, 1, 2 and 3), and button/section list responses.
 
 Usage (from the project root):
     python -m scripts.seed_menus           # Seeds only if table is empty
@@ -27,7 +27,7 @@ MENUS_DATA = [
         "selection_name": "Início",
         "message": (
             "👋 *Bem-vindo ao atendimento da UDESC!*\n\n"
-            "Escolha uma das opções abaixo ou toque em *Fazer Pergunta* para falar com nosso assistente:"
+            "Escolha uma das opções abaixo:"
         ),
         "parent_id": None,
     },
@@ -35,7 +35,7 @@ MENUS_DATA = [
     # --- LEVEL 1: Top-level menus, children of the root (parent_id: 1) ---
     {
         "id": 2,
-        "name": "menu_cursos",
+        "name": "1 menu_cursos",
         "selection_name": "1 - Graduação",
         "message": (
             "🎓 *Cursos de Graduação - UDESC*\n\n"
@@ -45,7 +45,7 @@ MENUS_DATA = [
     },
     {
         "id": 3,
-        "name": "menu_secretaria",
+        "name": "2 menu_secretaria",
         "selection_name": "2 - Secretaria",
         "message": (
             "📋 *Secretaria Acadêmica*\n\n"
@@ -55,7 +55,7 @@ MENUS_DATA = [
     },
     {
         "id": 4,
-        "name": "menu_suporte",
+        "name": "3 menu_suporte",
         "selection_name": "3 - Suporte e TI",
         "message": (
             "💻 *Suporte de TI e Sistemas*\n\n"
@@ -65,7 +65,7 @@ MENUS_DATA = [
     },
     {
         "id": 5,
-        "name": "menu_atendente",
+        "name": "4 menu_atendente",
         "selection_name": "4 - Atendente",
         "message": (
             "📞 *Atendimento Presencial e Contato*\n\n"
@@ -81,7 +81,7 @@ MENUS_DATA = [
     # --- LEVEL 1: Submenus of 'Cursos de Graduação' (parent_id: 2) ---
     {
         "id": 6,
-        "name": "curso_cc",
+        "name": "1.1 curso_cc",
         "selection_name": "1.1 - Computação",
         "message": (
             "💻 *Bacharelado em Ciência da Computação*\n\n"
@@ -95,7 +95,7 @@ MENUS_DATA = [
     },
     {
         "id": 7,
-        "name": "curso_si",
+        "name": "1.2 curso_si",
         "selection_name": "1.2 - Sist. Inform.",
         "message": (
             "📊 *Bacharelado em Sistemas de Informação*\n\n"
@@ -109,7 +109,7 @@ MENUS_DATA = [
     },
     {
         "id": 8,
-        "name": "curso_ep",
+        "name": "1.3 curso_ep",
         "selection_name": "1.3 - Eng. Produção",
         "message": (
             "⚙️ *Engenharia de Produção e Sistemas*\n\n"
@@ -125,7 +125,7 @@ MENUS_DATA = [
     # --- LEVEL 1: Submenus of 'Secretaria Acadêmica' (parent_id: 3) ---
     {
         "id": 9,
-        "name": "sec_calendario",
+        "name": "2.1 sec_calendario",
         "selection_name": "2.1 - Calendário",
         "message": (
             "📅 *Calendário Acadêmico 2026*\n\n"
@@ -139,7 +139,7 @@ MENUS_DATA = [
     },
     {
         "id": 10,
-        "name": "sec_documentos",
+        "name": "2.2 sec_documentos",
         "selection_name": "2.2 - Documentos",
         "message": (
             "📄 *Solicitação de Documentos Acadêmicos*\n\n"
@@ -149,7 +149,7 @@ MENUS_DATA = [
     },
     {
         "id": 11,
-        "name": "sec_matricula",
+        "name": "2.3 sec_matricula",
         "selection_name": "2.3 - Matrícula",
         "message": (
             "📝 *Matrícula e Rematrícula Online*\n\n"
@@ -164,7 +164,7 @@ MENUS_DATA = [
     # --- LEVEL 2: Sub-submenus of 'Solicitação de Documentos' (parent_id: 10) ---
     {
         "id": 12,
-        "name": "doc_atestado",
+        "name": "2.2.1 doc_atestado",
         "selection_name": "2.2.1 - Atestado",
         "message": (
             "📑 *Atestado de Matrícula Instantâneo*\n\n"
@@ -177,7 +177,7 @@ MENUS_DATA = [
     },
     {
         "id": 13,
-        "name": "doc_historico",
+        "name": "2.2.2 doc_historico",
         "selection_name": "2.2.2 - Histórico",
         "message": (
             "📜 *Histórico Escolar*\n\n"
@@ -188,7 +188,7 @@ MENUS_DATA = [
     },
     {
         "id": 14,
-        "name": "doc_trancamento",
+        "name": "2.2.3 doc_trancamento",
         "selection_name": "2.2.3 - Trancamento",
         "message": (
             "⏸️ *Trancamento de Matrícula*\n\n"
@@ -202,7 +202,7 @@ MENUS_DATA = [
     # --- LEVEL 1: Submenus of 'Suporte e Tecnologia' (parent_id: 4) ---
     {
         "id": 15,
-        "name": "sup_siga",
+        "name": "3.1 sup_siga",
         "selection_name": "3.1 - Acesso ao SIGA",
         "message": (
             "🔑 *Acesso e Recuperação de Senha do SIGA*\n\n"
@@ -215,7 +215,7 @@ MENUS_DATA = [
     },
     {
         "id": 16,
-        "name": "sup_wifi",
+        "name": "3.2 sup_wifi",
         "selection_name": "3.2 - Wi-Fi Eduroam",
         "message": (
             "📶 *Configuração da Rede Eduroam (Wi-Fi)*\n\n"
@@ -229,7 +229,7 @@ MENUS_DATA = [
     },
     {
         "id": 17,
-        "name": "sup_labs",
+        "name": "3.3 sup_labs",
         "selection_name": "3.3 - Laboratórios",
         "message": (
             "🖥️ *Laboratórios de Informática*\n\n"
