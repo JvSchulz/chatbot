@@ -16,13 +16,13 @@ from src.controllers.auth_controller import router as auth_router, get_current_a
 from src.controllers.history_controller import router as history_router
 from src.controllers.menus_controller import router as menus_router
 from src.controllers.users_controller import router as users_router
-from src.controllers.webhook_controller import WebhookLogMiddleware, setup_webhook_handlers
+from src.controllers.webhook_controller import setup_webhook_handlers
 from pywa.client import WhatsApp
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
-# Em DEBUG a PyWa registra o corpo de cada envio à Meta e a resposta recebida.
-logging.getLogger("pywa").setLevel(logging.DEBUG)
+# A PyWa registra as atualizações brutas (telefone, BSUID e texto) em DEBUG.
+logging.getLogger("pywa").setLevel(logging.INFO)
 
 
 @asynccontextmanager
@@ -61,7 +61,6 @@ async def unauthenticated_exception_handler(request: Request, exc: HTTPException
 
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(CSRFProtectionMiddleware)
-app.add_middleware(WebhookLogMiddleware)
 
 BASE_DIR = Path(__file__).resolve().parent
 
