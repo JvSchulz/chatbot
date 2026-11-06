@@ -121,5 +121,3 @@ A meta é uma taxa de mortes acima de 85%.
 ## Convenções
 
 - Identificadores em inglês; comentários e docstrings em português, no formato `Args:` / `Returns:`.
-- Textos exibidos ao usuário em português.
-- No máximo três parâmetros por função de serviço; nenhum comentário de código morto ou de metadados.
