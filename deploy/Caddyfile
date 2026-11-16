@@ -1,0 +1,15 @@
+# A porta 80 pertence ao site Node do dono do VPS: o Caddy atende apenas a 443 e obtém o
+# certificado pelo desafio TLS-ALPN-01, sem redirecionamentos nem desafio HTTP.
+{
+	auto_https disable_redirects
+}
+
+chatbot.lucianaritaguedes.com.br {
+	tls {
+		issuer acme {
+			disable_http_challenge
+		}
+	}
+
+	reverse_proxy 127.0.0.1:8000
+}
