@@ -121,3 +121,7 @@ A meta é uma taxa de mortes acima de 85%.
 ## Convenções
 
 - Identificadores em inglês; comentários e docstrings em português, no formato `Args:` / `Returns:`.
+
+## Licença
+
+Distribuído sob a [PolyForm Noncommercial License 1.0.0](LICENSE). O código pode ser compartilhado, estudado e modificado gratuitamente para fins acadêmicos, educacionais ou pessoais sem fins lucrativos. É proibida a venda ou o uso comercial do software como produto ou serviço para geração de receita.
