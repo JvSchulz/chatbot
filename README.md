@@ -1,17 +1,22 @@
 # Chatbot UDESC
 
-Chatbot de atendimento no WhatsApp, com menus hierárquicos configuráveis e um painel web de administração.
-O bot responde pela WhatsApp Cloud API (biblioteca PyWa); o painel (FastAPI, Jinja2 e HTMX) gerencia menus,
-usuários administradores e mostra o histórico das conversas.
+Chatbot de atendimento no WhatsApp com navegação em menus hierárquicos configuráveis e painel web de administração.
+O bot integra-se à WhatsApp Cloud API da Meta (via PyWa); o painel (FastAPI, Jinja2 e HTMX) gerencia menus,
+usuários administradores e o histórico das conversas.
 
-O desenho completo está em [arquitetura.md](arquitetura.md).
+A especificação arquitetural completa está em [arquitetura.md](arquitetura.md).
+
+## Principais recursos
+
+- **Navegação hierárquica no WhatsApp:** menu raiz como contêiner de boas-vindas, até 9 submenus por nível (botões de resposta rápida para até 3 opções e listas interativas acima disso), ordenação natural sem diferenciar maiúsculas ou acentos e sessões identificadas por BSUID com expiração de 15 minutos.
+- **Painel administrativo:** gestão de menus, gestão de usuários (restrita a administradores) e visualização paginada do histórico de conversas.
+- **Segurança e confiabilidade:** senhas protegidas com Argon2id, cookies `HttpOnly` (`__Host-session` em HTTPS), proteção CSRF via cabeçalho `X-CSRF-Token`, limite de 5 tentativas de login por minuto por IP, política CSP restrita (sem `'unsafe-inline'`), validação de assinatura `X-Hub-Signature-256` nos webhooks, logs com dados pessoais mascarados e SQLite em modo WAL com uma transação por evento.
 
 ## Pré-requisitos
 
 - Python 3.12
-- Node.js (só para rodar o `pyright` via `npx` nas verificações de qualidade)
-- Para receber mensagens reais: um número na WhatsApp Cloud API da Meta e uma URL pública HTTPS apontando
-  para `/webhook`
+- Node.js (opcional, necessário apenas para a verificação estática de tipos com `pyright` via `npx`)
+- Para atendimento real no WhatsApp: um número configurado na WhatsApp Cloud API da Meta e uma URL pública em HTTPS apontando para `/webhook`
 
 ## Instalação
 
@@ -21,61 +26,52 @@ source .venv/bin/activate
 pip install -r requirements-dev.txt
 ```
 
-`requirements.txt` traz só as dependências de execução; `requirements-dev.txt` acrescenta as de teste.
-Todas as versões são fixas para que a instalação seja reproduzível.
+`requirements.txt` contém apenas as dependências de execução; `requirements-dev.txt` adiciona as ferramentas de teste.
+Todas as versões são fixadas para garantir instalações reproduzíveis.
 
 ## Configuração
 
-Copie o modelo e preencha os valores. O arquivo `.env` fica fora do git.
+Copie o modelo e preencha os valores. O arquivo `.env` não é versionado no git.
 
 ```bash
 cp example_env .env
 ```
 
-| Variável | Para que serve |
+| Variável | Finalidade |
 |---|---|
-| `SECRET_KEY` | Chave que assina os tokens CSRF do painel; use uma sequência longa e aleatória. |
-| `WA_VERIFY_TOKEN` | Token de verificação do webhook; deve ser idêntico ao cadastrado no painel da Meta. |
-| `APP_SECRET` | Segredo do aplicativo Meta, usado para validar a assinatura `X-Hub-Signature-256` de cada evento. |
-| `WA_TOKEN` | Token de acesso permanente da API, usado para enviar mensagens. |
-| `WA_PHONE_ID` | Identificador do número de telefone (Phone Number ID). |
-| `ADMIN_INITIAL_PASSWORD` | Senha (mínimo de 12 caracteres) do primeiro administrador `admin`; lida só com o banco sem usuários. |
+| `SECRET_KEY` | Chave utilizada para assinar os tokens CSRF do painel; use uma sequência longa e aleatória. |
+| `WA_VERIFY_TOKEN` | Token de verificação do webhook; deve coincidir com o valor cadastrado no painel da Meta. |
+| `APP_SECRET` | Segredo do aplicativo Meta, usado na validação da assinatura `X-Hub-Signature-256` de cada evento. |
+| `WA_TOKEN` | Token de acesso permanente da WhatsApp Cloud API, usado para envio de mensagens. |
+| `WA_PHONE_ID` | Identificador do número de telefone (Phone Number ID) na Meta. |
+| `ADMIN_INITIAL_PASSWORD` | Senha inicial do primeiro administrador `admin` (mínimo de 12 caracteres); usada apenas quando não há usuários cadastrados. |
 
-Todas, exceto `ADMIN_INITIAL_PASSWORD`, são obrigatórias: a aplicação não inicia com alguma ausente ou em branco
-e o erro lista todas as que faltam.
+As cinco primeiras variáveis são sempre obrigatórias: a aplicação não inicia se alguma estiver ausente ou em branco e informa todas as pendências no erro. `ADMIN_INITIAL_PASSWORD` também é obrigatória na primeira inicialização (com o banco de usuários vazio).
 
 ## Banco de dados
 
-O SQLite fica em `database.db` na raiz do projeto (fora do git). As tabelas são criadas na primeira
-inicialização. Um `database.db` criado antes da remoção do modo de atendimento tem a coluna `mode`
-em `user_sessions` e falha ao gravar sessões: apague o arquivo (e `database.db-wal` e `database.db-shm`) e
-recrie os menus. Para popular os menus com uma árvore de exemplo:
+O banco SQLite é armazenado em `database.db` na raiz do projeto (fora do git) e tem suas tabelas criadas automaticamente na primeira inicialização, com modo WAL e chaves estrangeiras ativados.
+
+Para popular os menus com a árvore de exemplo:
 
 ```bash
-python -m scripts.seed_menus           # só se ainda não houver menus
-python -m scripts.seed_menus --reset   # apaga os menus e recria a árvore
+python -m scripts.seed_menus           # popula apenas se a tabela de menus estiver vazia
+python -m scripts.seed_menus --reset   # remove os menus existentes e recria a árvore de exemplo
 ```
 
-## Executando
+## Executando localmente
 
 ```bash
 uvicorn main:app --reload
 ```
 
-Abra `http://127.0.0.1:8000`. No primeiro início, com o banco sem usuários, o administrador `admin` é criado
-com a senha de `ADMIN_INITIAL_PASSWORD`. O painel tem três telas: Menus, Usuários (só para administradores)
-e Histórico.
+Acesse `http://127.0.0.1:8000`. Na primeira inicialização sem usuários no banco, a conta `admin` é criada com a senha definida em `ADMIN_INITIAL_PASSWORD`. O painel conta com três telas: **Menus**, **Usuários** (restrita a administradores) e **Histórico**.
 
-Para receber mensagens reais, cadastre `https://<seu-domínio>/webhook` no painel da Meta (WhatsApp, Configuração,
-Webhook), informe o mesmo `WA_VERIFY_TOKEN` e assine o campo `messages`. A aplicação não registra o webhook
-sozinha. A documentação interativa do FastAPI (`/docs`) fica desligada.
+Para receber mensagens reais, cadastre manualmente `https://<seu-domínio>/webhook` no painel da Meta (*WhatsApp > Configuração > Webhook*), informe o mesmo `WA_VERIFY_TOKEN` e assine o campo `messages`. A documentação interativa do FastAPI (`/docs`) permanece desabilitada por segurança.
 
-### Simulando eventos sem a Meta
+### Simulando eventos localmente
 
-`scripts/send_mock_webhook.py` envia ao servidor local um evento no formato da Meta, assinado com `APP_SECRET`
-exatamente como a Meta faz, então a validação de assinatura continua ligada. As respostas continuam saindo pela
-API real, portanto use um número de teste ou aceite o erro de envio nos logs; as linhas do histórico são gravadas
-de qualquer forma.
+O script `scripts/send_mock_webhook.py` envia ao servidor local eventos no formato da Meta assinados com `APP_SECRET`, mantendo a validação de assinatura ativa. As respostas de saída continuam sendo enviadas para a API da Meta: utilize um número de teste autorizado; em caso de falha no envio, o erro é registrado nos logs e apenas a mensagem recebida do usuário é gravada no histórico.
 
 ```bash
 python -m scripts.send_mock_webhook --text "Olá"
@@ -83,44 +79,42 @@ python -m scripts.send_mock_webhook --button "menu:2" --url http://127.0.0.1:800
 python -m scripts.send_mock_webhook --text "Oi" --wa-id 554798765432
 ```
 
-## Qualidade
+## Implantação
 
-Todos os comandos rodam a partir da raiz do projeto, com o ambiente virtual ativo.
+Os arquivos de produção e o roteiro passo a passo de implantação em VPS estão em [`deploy/`](deploy/README.md), incluindo:
+
+- Proxy reverso com HTTPS automático via Caddy (`deploy/Caddyfile`)
+- Serviço gerenciado pelo `systemd` (`deploy/chatbot.service`)
+- Rotina de backup diário compatível com SQLite WAL e retenção de 14 dias (`deploy/backup-db.sh`)
+
+Em produção, a aplicação deve ser executada com **um único worker** do Uvicorn (`--workers 1`), pois a deduplicação de eventos da PyWa ocorre em memória no processo e o SQLite opera com um único escritor por vez.
+
+## Qualidade e testes
+
+Execute os comandos a partir da raiz do projeto com o ambiente virtual ativo:
 
 ```bash
-python -m pytest tests -q                                      # 100% dos testes devem passar
-python -m pytest --cov=src --cov-fail-under=95 tests/          # cobertura mínima de 95%
-npx pyright src main.py tests scripts                          # 0 erros e 0 avisos
+python -m pytest tests -q
+python -m pytest --cov=src --cov-fail-under=95 tests/
+npx pyright src main.py tests scripts
 ```
 
-Teste de mutação com `mutmut`: aponte `source_paths` em `setup.cfg` para os arquivos a mutar, apague a pasta
-`mutants` (o mutmut guarda resultados e não percebe mudanças só nos testes) e rode:
+O projeto também conta com configuração para testes de mutação com `mutmut` em `setup.cfg` (meta acima de 85% de mutantes detectados).
 
-```bash
-rm -rf mutants
-mutmut run
-mutmut results
-```
-
-A meta é uma taxa de mortes acima de 85%.
-
-## Mapa de pastas
+## Estrutura do projeto
 
 | Caminho | Conteúdo |
 |---|---|
-| `main.py` | Montagem da aplicação: roteadores, middlewares, tratadores de erro e o cliente PyWa. |
-| `src/core/` | Configuração (`config.py`), banco (`db.py`), segurança e middlewares (`security.py`, `middleware.py`). |
+| `main.py` | Ponto de entrada da aplicação: roteadores, middlewares, handlers de exceção e cliente PyWa. |
+| `src/core/` | Configuração (`config.py`), acesso ao banco (`db.py`), segurança e middlewares (`security.py`, `middleware.py`). |
 | `src/models/` | Entidades SQLModel: `Menu`, `User`, `AdminSession`, `UserSession` e `ChatHistory`. |
-| `src/services/` | Regras de negócio: menus, usuários, sessões do bot e, em `webhook/`, o tratamento dos eventos e o histórico. |
+| `src/services/` | Regras de negócio: menus, usuários, sessões e, em `webhook/`, tratamento de eventos e histórico. |
 | `src/controllers/` | Rotas HTTP: autenticação, menus, usuários, histórico e webhook. |
-| `src/views/` | Templates Jinja2 (`templates/`) e arquivos estáticos: `htmx.min.js`, `app.js`, `style.css` e a logo. |
-| `scripts/` | Migração do banco, carga de menus de exemplo e simulador de webhook. |
-| `tests/` | Testes unitários, de integração e ponta a ponta. |
+| `src/views/` | Templates Jinja2 (`templates/`) e arquivos estáticos (`htmx.min.js`, `app.js`, `style.css` e logotipo). |
+| `scripts/` | Carga de menus de exemplo (`seed_menus.py`) e simulador de eventos de webhook (`send_mock_webhook.py`). |
+| `deploy/` | Arquivos e guia de implantação em VPS (`Caddyfile`, `chatbot.service`, `backup-db.sh` e `deploy/README.md`). |
+| `tests/` | Suítes de testes unitários, de integração e ponta a ponta. |
 | `example_env` | Modelo do arquivo `.env`. |
-
-## Convenções
-
-- Identificadores em inglês; comentários e docstrings em português, no formato `Args:` / `Returns:`.
 
 ## Licença
 
