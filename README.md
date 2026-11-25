@@ -50,14 +50,7 @@ As cinco primeiras variáveis são sempre obrigatórias: a aplicação não inic
 
 ## Banco de dados
 
-O banco SQLite é armazenado em `database.db` na raiz do projeto (fora do git) e tem suas tabelas criadas automaticamente na primeira inicialização, com modo WAL e chaves estrangeiras ativados.
-
-Para popular os menus com a árvore de exemplo:
-
-```bash
-python -m scripts.seed_menus           # popula apenas se a tabela de menus estiver vazia
-python -m scripts.seed_menus --reset   # remove os menus existentes e recria a árvore de exemplo
-```
+O banco SQLite é armazenado em `database.db` na raiz do projeto (fora do git) e tem suas tabelas criadas automaticamente na primeira inicialização, com modo WAL e chaves estrangeiras ativados. Os menus são configurados pelo painel administrativo.
 
 ## Executando localmente
 
@@ -111,7 +104,7 @@ O projeto também conta com configuração para testes de mutação com `mutmut`
 | `src/services/` | Regras de negócio: menus, usuários, sessões e, em `webhook/`, tratamento de eventos e histórico. |
 | `src/controllers/` | Rotas HTTP: autenticação, menus, usuários, histórico e webhook. |
 | `src/views/` | Templates Jinja2 (`templates/`) e arquivos estáticos (`htmx.min.js`, `app.js`, `style.css` e logotipo). |
-| `scripts/` | Carga de menus de exemplo (`seed_menus.py`) e simulador de eventos de webhook (`send_mock_webhook.py`). |
+| `scripts/` | Simulador local de eventos de webhook (`send_mock_webhook.py`). |
 | `deploy/` | Arquivos e guia de implantação em VPS (`Caddyfile`, `chatbot.service`, `backup-db.sh` e `deploy/README.md`). |
 | `tests/` | Suítes de testes unitários, de integração e ponta a ponta. |
 | `example_env` | Modelo do arquivo `.env`. |

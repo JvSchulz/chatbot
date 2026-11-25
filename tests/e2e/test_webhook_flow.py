@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 from pywa.client import WhatsApp
-from pywa.types import SectionList
+from pywa.types.callback import SectionList
 from src.models.chat_history_model import ChatHistory
 from src.models.menu_model import Menu
 from src.models.user_session_model import UserSession

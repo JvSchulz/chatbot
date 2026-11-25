@@ -4,7 +4,7 @@ Testes unitários para despacho de respostas via PyWa/WhatsApp Cloud API.
 
 from unittest.mock import MagicMock
 from pywa.client import WhatsApp
-from pywa.types import Button
+from pywa.types.callback import Button
 from src.services.webhook.message_handler import dispatch_reply
 
 

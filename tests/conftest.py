@@ -18,8 +18,9 @@ from sqlalchemy.pool import StaticPool
 from sqlalchemy import event
 from sqlmodel import SQLModel, Session, create_engine
 from pywa.client import WhatsApp
-from pywa.types import Message, CallbackButton, CallbackSelection
-from pywa.types.base_update import User as WaUser
+from pywa.types.callback import CallbackButton, CallbackSelection
+from pywa.types.message import Message
+from pywa.types.user import User as WaUser
 from src.models.user_model import User
 from src.models import menu_model, user_model, chat_history_model, user_session_model, session_model  # noqa: F401
 

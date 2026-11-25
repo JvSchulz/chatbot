@@ -6,8 +6,8 @@ import logging
 import pytest
 from unittest.mock import MagicMock
 from sqlalchemy.exc import OperationalError
-from pywa.types import MessageStatus
-from pywa.types.base_update import User
+from pywa.types.message_status import MessageStatus
+from pywa.types.user import User
 from src.controllers.webhook_controller import setup_webhook_handlers
 
 PHONE = "554799998888"

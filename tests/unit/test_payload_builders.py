@@ -2,7 +2,7 @@
 Testes unitários para construção de payloads de resposta (botões e listas de seções).
 """
 
-from pywa.types import Button, SectionList
+from pywa.types.callback import Button, SectionList
 from src.models.menu_model import Menu
 from src.services.menu_service import MAX_MESSAGE_LEN
 from src.services.webhook.message_handler import (
