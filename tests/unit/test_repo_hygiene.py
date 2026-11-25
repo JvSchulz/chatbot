@@ -150,3 +150,14 @@ def test_arquitetura_overview_concisely_states_current_scope():
     assert "menus hierárquicos" in overview
     assert overview.count("telegram") <= 1
     assert overview.count("retirado do escopo") <= 1
+
+
+def test_menu_seeder_script_is_removed():
+    assert not (PROJECT_ROOT / "scripts" / "seed_menus.py").exists()
+
+
+@pytest.mark.parametrize("rel_path", ["README.md", "deploy/README.md"])
+def test_docs_do_not_reference_removed_menu_seeder(rel_path: str):
+    content = (PROJECT_ROOT / rel_path).read_text(encoding="utf-8").lower()
+
+    assert "seed_menus" not in content

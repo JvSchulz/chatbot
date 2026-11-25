@@ -128,11 +128,8 @@ Nunca carregue o `.env` no shell: variáveis exportadas têm prioridade sobre o 
 
 ### 5. Iniciar a aplicação
 
-Os menus criados aqui são exemplos. Rode o primeiro comando só com o banco vazio:
-
 ```bash
 cd /opt/chatbot
-runuser -u chatbot -- .venv/bin/python -m scripts.seed_menus
 cp deploy/chatbot.service /etc/systemd/system/chatbot.service
 systemctl daemon-reload
 systemctl enable --now chatbot
