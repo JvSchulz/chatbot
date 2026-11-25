@@ -2,13 +2,15 @@
 
 Este guia permite refazer a implantação do zero, entender o que está no servidor e desfazer tudo
 se preciso. Nenhum segredo fica aqui: os valores ficam apenas em `/opt/chatbot/.env`, no servidor.
+Nos exemplos abaixo, substitua `chatbot.example.com`, `example.com` e `<IP_DO_VPS>` pelos dados do
+seu ambiente.
 
 ## Como funciona
 
 ```text
-Usuário no WhatsApp -> Meta -> https://chatbot.lucianaritaguedes.com.br/webhook
+Usuário no WhatsApp -> Meta -> https://chatbot.example.com/webhook
                                  |
-                                 | o DNS da Locaweb traduz o nome para 62.4.16.72
+                                 | o DNS traduz o nome para <IP_DO_VPS>
                                  v
                       VPS: Caddy, porta 443 (HTTPS e certificado)
                                  |
@@ -22,22 +24,21 @@ Usuário no WhatsApp -> Meta -> https://chatbot.lucianaritaguedes.com.br/webhook
 | Peça | O que faz | Por que é necessária |
 |---|---|---|
 | Registro DNS `chatbot` | Aponta o nome para o IP do VPS | A Meta precisa de um nome com certificado válido, não de um IP |
-| Caddy | Atende o HTTPS, renova o certificado sozinho e repassa as requisições à aplicação | A Meta só aceita webhook em HTTPS, e a porta 80 pertence ao site do dono |
+| Caddy | Atende o HTTPS, renova o certificado sozinho e repassa as requisições à aplicação | A Meta só aceita webhook em HTTPS, e o uso da porta 443 com TLS-ALPN-01 evita conflito caso a porta 80 já esteja em uso |
 | Let's Encrypt | Emite o certificado gratuito | O Caddy o solicita e renova sem intervenção |
 | Serviço `chatbot` (systemd) | Mantém a aplicação rodando e a reinicia em falhas e no boot | Sem ele, a aplicação pararia ao fechar o SSH |
 | `.env` | Guarda os segredos e as credenciais da Meta | Fica fora do git |
-| Backup diário (cron) | Copia o banco toda madrugada | Os backups do painel do VPS são pagos e não foram contratados |
+| Backup diário (cron) | Copia o banco toda madrugada | Protege o banco contra erro humano sem depender de snapshots externos |
 
-## Regras deste servidor
+## Cuidados em um servidor compartilhado
 
-O VPS pertence ao dono do site e roda o site dele. A implantação não pode alterá-lo.
+Se o VPS já hospedar outros sites ou serviços, a implantação não deve interferir neles:
 
-- **Portas do dono:** Node em 80, 5000 e 8080; nginx em 8081. Nunca as ocupe nem as bloqueie.
-- **Firewall:** não aplique um firewall restritivo (como `ufw` só com 22, 80 e 443).
-- **`apt upgrade`:** não execute. Ele atualizaria os pacotes de que o site do dono depende.
-- **Docker:** não use. O servidor é um contêiner OpenVZ, onde o Docker costuma não funcionar.
-- **DNS:** só o registro `chatbot` é nosso. Os demais incluem o e-mail do dono (`MX`, `pop`, `smtp`).
-- **SSH do dono:** o login de root está habilitado. A decisão de mudar isso é do dono.
+- **Porta 80 e serviços existentes:** confira quais portas já estão escutando (`ss -tlnp`) e nunca as ocupe nem as bloqueie. O `Caddyfile` deste projeto usa apenas a porta 443 (TLS-ALPN-01) para não disputar a porta 80.
+- **Firewall:** não aplique regras restritivas sem antes mapear todas as portas usadas pelos serviços já presentes no servidor.
+- **`apt upgrade`:** evite executar atualizações globais sem validar antes se há serviços legados dependentes das versões atuais dos pacotes.
+- **Docker:** em contêineres OpenVZ ou ambientes sem virtualização aninhada, o Docker costuma não funcionar; por isso este guia instala a aplicação diretamente via `systemd` e `uv`.
+- **DNS:** altere apenas o registro do subdomínio do chatbot (`chatbot`), preservando os demais registros da zona (como `MX`, e-mail e o domínio raiz).
 
 ## O que existe no servidor
 
@@ -51,9 +52,9 @@ O VPS pertence ao dono do site e roda o site dele. A implantação não pode alt
 | `/etc/apt/sources.list.d/caddy-stable.list` e `/usr/share/keyrings/caddy-stable-archive-keyring.gpg` | Origem do pacote do Caddy |
 | `/var/lib/caddy/` | Certificado e conta do Let's Encrypt |
 | `/etc/cron.d/chatbot-backup` e `/var/backups/chatbot/` | Agendamento e cópias do banco |
-| `/root/antes-chatbot-*.txt` | Estado das portas e do site antes da implantação |
+| `/root/antes-chatbot-*.txt` | Estado das portas e do serviço HTTP antes da implantação |
 
-Pacote instalado pelo `apt`: `caddy` e `sqlite3`. Usuário criado: `chatbot`, sem login.
+Pacotes instalados pelo `apt`: `caddy` e `sqlite3`. Usuário criado: `chatbot`, sem login.
 
 ## Implantação do zero
 
@@ -62,21 +63,21 @@ resultado antes de seguir.
 
 ### 1. DNS
 
-No painel da Locaweb: Zonas DNS, `lucianaritaguedes.com.br`, Adicionar entrada.
+No painel do seu provedor de DNS, abra a zona de `example.com` e adicione uma entrada:
 
 | Tipo de Entrada | Nome / Host / Alias | Conteúdo / Valor / Aponta para |
 |---|---|---|
-| `A` | `chatbot` | `62.4.16.72` |
+| `A` | `chatbot` | `<IP_DO_VPS>` |
 
-Não crie `AAAA`, pois o VPS não tem IPv6. Para conferir, em qualquer máquina com `dig`:
+Não crie registro `AAAA` se o VPS não tiver IPv6 configurado. Para conferir, em qualquer máquina com `dig`:
 
 ```bash
-dig +short A chatbot.lucianaritaguedes.com.br @1.1.1.1
+dig +short A chatbot.example.com @1.1.1.1
 ```
 
 ### 2. Estado inicial
 
-Registre o estado do site para comparar no final:
+Registre o estado inicial das portas e de eventual serviço na porta 80 para comparar no final:
 
 ```bash
 ss -tlnp > /root/antes-chatbot-portas.txt
@@ -103,14 +104,12 @@ UV_PYTHON_INSTALL_DIR=/opt/uv-python uv venv -p 3.12 .venv
 VIRTUAL_ENV=/opt/chatbot/.venv uv pip install -r requirements.txt
 ```
 
-Enquanto `deploy/` não estiver na `main`, clone com `--branch chore/deploy-files`.
-
 ### 4. Segredos
 
-Na **sua máquina**, envie o `.env` que já tem as credenciais da Meta. Cole em uma única linha:
+Na **sua máquina** (a partir da raiz do projeto), envie o `.env` que já tem as credenciais da Meta. Cole em uma única linha:
 
 ```bash
-scp ~/code/codespace/chatbot/.env root@62.4.16.72:/opt/chatbot/.env
+scp ./.env root@<IP_DO_VPS>:/opt/chatbot/.env
 ```
 
 Se não houver um `.env` local, copie `example_env` para `.env` no VPS e preencha `WA_TOKEN`,
@@ -146,13 +145,15 @@ O resultado esperado é `active` e `200`. A aplicação leva cerca de 7 segundos
 
 ### 6. Caddy
 
-O DNS do passo 1 precisa estar ativo. O Caddyfile entra antes do pacote porque a configuração
-padrão do Caddy usa a porta 80, que é do dono:
+O DNS do passo 1 precisa estar ativo. Copie o `Caddyfile` antes de instalar o pacote e substitua
+`chatbot.example.com` pelo seu domínio real, porque a configuração padrão do Caddy tenta usar a
+porta 80:
 
 ```bash
 command -v gpg || apt install --yes gnupg
 mkdir -p /etc/caddy
 cp /opt/chatbot/deploy/Caddyfile /etc/caddy/Caddyfile
+# Edite /etc/caddy/Caddyfile e substitua chatbot.example.com pelo domínio real antes de instalar.
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
 chmod o+r /usr/share/keyrings/caddy-stable-archive-keyring.gpg /etc/apt/sources.list.d/caddy-stable.list
@@ -173,20 +174,17 @@ O esperado é uma linha `certificate obtained`. Se não aparecer, veja "Problema
 ### 7. Verificação
 
 ```bash
-curl -s -m 15 -o /dev/null -w '%{http_code}\n' https://chatbot.lucianaritaguedes.com.br/login
+curl -s -m 15 -o /dev/null -w '%{http_code}\n' https://chatbot.example.com/login
 ss -tlnp | diff /root/antes-chatbot-portas.txt -
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:80/
-for host in lucianaritaguedes.com.br pacman.lucianaritaguedes.com.br obiexplorer.lucianaritaguedes.com.br; do
-  curl -s -o /dev/null -w "$host %{http_code}\n" "http://$host/"
-done
 ```
 
 - O `/login` deve responder `200`.
 - O `diff` deve mostrar só as novidades: `443`, `8000` e `127.0.0.1:2019` (administração interna
   do Caddy). Os números de processo também podem mudar.
-- O site deve responder o mesmo código de `/root/antes-chatbot-site.txt`.
-- Os outros nomes continuam só em `http://`. Em `https://` eles passam a dar erro de certificado
-  em vez de conexão recusada; em nenhum dos casos o HTTPS deles funciona.
+- Se já havia um serviço na porta 80, ele deve responder o mesmo código salvo em
+  `/root/antes-chatbot-site.txt`.
+- Outros domínios que operam apenas em `http://` no mesmo servidor continuam acessíveis em `http://`.
 
 ### 8. Meta
 
@@ -198,7 +196,7 @@ grep '^WA_VERIFY_TOKEN=' /opt/chatbot/.env
 
 No painel da Meta, em WhatsApp > Configuração:
 
-1. URL de retorno: `https://chatbot.lucianaritaguedes.com.br/webhook`.
+1. URL de retorno: `https://chatbot.example.com/webhook`.
 2. Token de verificação: o valor lido acima.
 3. Assine o campo `messages`.
 
@@ -207,7 +205,7 @@ telefone, confira a resposta e veja a mensagem na tela de Histórico.
 
 ### 9. Painel
 
-Abra `https://chatbot.lucianaritaguedes.com.br/login` com o usuário `admin` e a senha lida com:
+Abra `https://chatbot.example.com/login` com o usuário `admin` e a senha lida com:
 
 ```bash
 grep '^ADMIN_INITIAL_PASSWORD=' /opt/chatbot/.env
@@ -282,8 +280,8 @@ systemctl start chatbot
 
 ## Desfazer a implantação
 
-Exporte o banco antes se o histórico importar: estes comandos o apagam. Nenhum deles toca no site
-do dono.
+Exporte o banco antes se o histórico importar: estes comandos o apagam. Nenhum deles altera outros
+serviços já existentes no servidor.
 
 ```bash
 systemctl disable --now caddy chatbot
@@ -296,5 +294,5 @@ rm -f /usr/local/bin/uv /usr/local/bin/uvx
 userdel chatbot
 ```
 
-Depois, apague a entrada `chatbot` no painel da Locaweb e retire a URL de retorno na Meta. O pacote
-`sqlite3` pode permanecer, pois é inofensivo.
+Depois, apague a entrada `chatbot` no painel do seu provedor de DNS e retire a URL de retorno na
+Meta. O pacote `sqlite3` pode permanecer, pois é inofensivo.

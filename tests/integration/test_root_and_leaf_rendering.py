@@ -4,7 +4,7 @@ Testes de integração da renderização do menu raiz como contêiner e das folh
 
 from unittest.mock import MagicMock
 from sqlmodel import Session, select
-from pywa.types import Button, SectionList
+from pywa.types.callback import Button, SectionList
 from src.models.chat_history_model import ChatHistory
 from src.models.menu_model import Menu
 from src.services.webhook.message_handler import (

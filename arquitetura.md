@@ -2,7 +2,7 @@
 
 A aplicação é um chatbot de atendimento no WhatsApp que atende por navegação estruturada em menus hierárquicos.
 
-O único canal de mensageria é o WhatsApp, pela WhatsApp Cloud API da Meta (biblioteca PyWa). O Telegram foi retirado do escopo. O painel administrativo web, protegido por autenticação, gerencia os menus e os usuários administradores e mostra o histórico das conversas. O atendimento por LLM foi retirado do escopo (o VPS de implantação não comporta um modelo e não há outro host previsto), como o Telegram. A hospedagem é projetada para nuvem, VPS ou infraestrutura auto-hospedada (self-hosted).
+O único canal de mensageria é o WhatsApp, pela WhatsApp Cloud API da Meta (biblioteca PyWa), sem uso de modelos de linguagem (LLM) nem integração com outros canais. O painel administrativo web, protegido por autenticação, gerencia os menus e os usuários administradores e mostra o histórico das conversas. A hospedagem é projetada para nuvem, VPS ou infraestrutura auto-hospedada (self-hosted).
 
 ## Stack
 

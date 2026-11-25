@@ -6,8 +6,8 @@ import pytest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 from sqlmodel import Session, select
-from pywa.types import MessageStatus
-from pywa.types.base_update import User
+from pywa.types.message_status import MessageStatus
+from pywa.types.user import User
 from src.models.chat_history_model import ChatHistory
 from src.models.menu_model import Menu
 from src.models.user_session_model import UserSession

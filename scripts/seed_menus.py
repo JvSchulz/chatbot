@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Seed script for Chatbot menus table.
-Populates the menus table with one root menu (the greeting container) whose children are the
-top-level options, plus a realistic hierarchical menu structure for testing navigation
-(depth 0, 1, 2 and 3), and button/section list responses.
+Script de carga inicial para a tabela de menus do Chatbot.
+Popula a tabela `menus` com um menu raiz (o contêiner de boas-vindas) cujos filhos são as
+opções de primeiro nível, além de uma estrutura hierárquica realista para testar navegação
+(profundidades 0, 1, 2 e 3) e respostas com botões ou listas de seções.
 
-Usage (from the project root):
-    python -m scripts.seed_menus           # Seeds only if table is empty
-    python -m scripts.seed_menus --reset   # Clears menus and reseeds from scratch
+Uso (a partir da raiz do projeto):
+    python -m scripts.seed_menus           # Popula apenas se a tabela estiver vazia
+    python -m scripts.seed_menus --reset   # Limpa os menus e recria a árvore do zero
 """
 
 import argparse
@@ -20,7 +20,7 @@ from src.models import chat_history_model, menu_model, session_model, user_model
 from src.models.menu_model import Menu
 
 MENUS_DATA = [
-    # --- LEVEL 0: Root menu (container: its message is the greeting, its children are the options) ---
+    # --- NÍVEL 0: Menu raiz (contêiner: sua mensagem é a saudação e seus filhos são as opções) ---
     {
         "id": 1,
         "name": "menu_inicio",
@@ -32,7 +32,7 @@ MENUS_DATA = [
         "parent_id": None,
     },
 
-    # --- LEVEL 1: Top-level menus, children of the root (parent_id: 1) ---
+    # --- NÍVEL 1: Menus principais, filhos da raiz (parent_id: 1) ---
     {
         "id": 2,
         "name": "1 menu_cursos",
@@ -72,13 +72,12 @@ MENUS_DATA = [
             "Nossa equipe atende de segunda a sexta-feira, das 08h às 20h.\n"
             "• E-mail: secretaria.cct@udesc.br\n"
             "• Telefone: (47) 3803-7200\n"
-            "• Endereço: Campus Universitário Prof. Collaço, Bloco Central\n\n"
-            "Caso prefira, digite sua dúvida em texto livre a qualquer momento para falar com nossa IA!"
+            "• Endereço: Campus Universitário Prof. Collaço, Bloco Central"
         ),
         "parent_id": 1,
     },
 
-    # --- LEVEL 1: Submenus of 'Cursos de Graduação' (parent_id: 2) ---
+    # --- NÍVEL 1: Submenus de 'Cursos de Graduação' (parent_id: 2) ---
     {
         "id": 6,
         "name": "1.1 curso_cc",
@@ -122,7 +121,7 @@ MENUS_DATA = [
         "parent_id": 2,
     },
 
-    # --- LEVEL 1: Submenus of 'Secretaria Acadêmica' (parent_id: 3) ---
+    # --- NÍVEL 1: Submenus de 'Secretaria Acadêmica' (parent_id: 3) ---
     {
         "id": 9,
         "name": "2.1 sec_calendario",
@@ -161,7 +160,7 @@ MENUS_DATA = [
         "parent_id": 3,
     },
 
-    # --- LEVEL 2: Sub-submenus of 'Solicitação de Documentos' (parent_id: 10) ---
+    # --- NÍVEL 2: Sub-submenus de 'Solicitação de Documentos' (parent_id: 10) ---
     {
         "id": 12,
         "name": "2.2.1 doc_atestado",
@@ -199,7 +198,7 @@ MENUS_DATA = [
         "parent_id": 10,
     },
 
-    # --- LEVEL 1: Submenus of 'Suporte e Tecnologia' (parent_id: 4) ---
+    # --- NÍVEL 1: Submenus de 'Suporte e Tecnologia' (parent_id: 4) ---
     {
         "id": 15,
         "name": "3.1 sup_siga",
@@ -245,12 +244,12 @@ MENUS_DATA = [
 
 def seed_menus(db_path: Path, reset: bool = False) -> None:
     """
-    Seed the menus table with the initial hierarchical data.
+    Popula a tabela de menus com a árvore hierárquica inicial.
 
     Args:
-        db_path: Path to the SQLite database file (created if missing).
-        reset: Wipe existing menus before seeding. History and sessions that referenced them
-            are kept with the menu reference cleared.
+        db_path: Caminho para o arquivo do banco SQLite (criado se não existir).
+        reset: Limpa os menus existentes antes de popular novamente. Histórico e sessões que
+            os referenciavam são mantidos com a referência ao menu limpa.
     """
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -262,24 +261,29 @@ def seed_menus(db_path: Path, reset: bool = False) -> None:
         count = session.exec(select(func.count()).select_from(Menu)).one()
         if count > 0:
             if not reset:
-                print(f"[INFO] The 'menus' table already contains {count} records.")
-                print("[INFO] Use '--reset' flag to wipe existing records and reseed.")
+                print(f"[INFO] A tabela 'menus' já contém {count} registros.")
+                print("[INFO] Use a opção '--reset' para limpar os registros existentes e recriar a árvore.")
                 return
-            print(f"[RESET] Clearing existing {count} records from 'menus' table...")
+            print(f"[RESET] Removendo {count} registros existentes da tabela 'menus'...")
             session.exec(delete(Menu))  # type: ignore
             session.commit()
 
-        print(f"[SEEDING] Inserting {len(MENUS_DATA)} menu items into {db_path.name}...")
+        print(f"[CARGA] Inserindo {len(MENUS_DATA)} menus em {db_path.name}...")
         session.add_all(Menu(**item) for item in MENUS_DATA)
         session.commit()
 
     engine.dispose()
-    print("[SUCCESS] Seeding complete! Menu tree summary:")
+    print("[SUCESSO] Carga concluída! Resumo da árvore de menus:")
     print_tree(MENUS_DATA)
 
 
 def print_tree(data: Sequence[dict]) -> None:
-    """Render a visual tree representation in terminal output."""
+    """
+    Exibe uma representação visual em árvore dos menus no terminal.
+
+    Args:
+        data: Sequência de dicionários com os dados de cada menu.
+    """
     by_parent: dict[int | None, list[dict]] = {}
     for item in data:
         by_parent.setdefault(item["parent_id"], []).append(item)
@@ -289,7 +293,7 @@ def print_tree(data: Sequence[dict]) -> None:
         for i, item in enumerate(items):
             is_last = i == (len(items) - 1)
             connector = "└── " if is_last else "├── "
-            print(f"{prefix}{connector}[ID {item['id']}] {item['selection_name']} (name: {item['name']})")
+            print(f"{prefix}{connector}[ID {item['id']}] {item['selection_name']} (nome: {item['name']})")
             next_prefix = prefix + ("    " if is_last else "│   ")
             _render(item["id"], next_prefix)
 
@@ -298,22 +302,22 @@ def print_tree(data: Sequence[dict]) -> None:
 
 def main(argv: Sequence[str] | None = None) -> None:
     """
-    Command line entry point.
+    Ponto de entrada de linha de comando para a carga inicial de menus.
 
     Args:
-        argv: Command line arguments; sys.argv is used when omitted.
+        argv: Argumentos de linha de comando; usa sys.argv quando omitido.
     """
-    parser = argparse.ArgumentParser(description="Seed chatbot menus database")
+    parser = argparse.ArgumentParser(description="Popula o banco de dados de menus do chatbot.")
     parser.add_argument(
         "--reset",
         action="store_true",
-        help="Wipe existing menus before seeding",
+        help="Limpa os menus existentes antes de popular novamente",
     )
     parser.add_argument(
         "--db",
         type=Path,
         default=DB_PATH,
-        help=f"Path to SQLite database file (default: {DB_PATH})",
+        help=f"Caminho para o arquivo do banco SQLite (padrão: {DB_PATH})",
     )
     args = parser.parse_args(argv)
     seed_menus(db_path=args.db, reset=args.reset)

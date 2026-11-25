@@ -2,6 +2,7 @@
 Testes do script de carga de menus, sempre contra bancos temporários.
 """
 
+import re
 from collections import Counter
 from pathlib import Path
 from sqlalchemy import create_engine, event
@@ -154,3 +155,26 @@ def test_seed_names_sort_in_the_same_order_as_the_numbered_titles():
     for siblings in by_parent.values():
         by_name = sorted(siblings, key=lambda item: menu_sort_key(item["name"]))
         assert [item["selection_name"] for item in by_name] == [item["selection_name"] for item in siblings]
+
+
+def test_seed_messages_exclude_removed_ai_and_free_text_prompts():
+    assert MENUS_DATA
+    ai_pattern = re.compile(r"\b(ia|llm|ollama)\b", re.IGNORECASE)
+
+    for item in MENUS_DATA:
+        message = item["message"]
+        assert ai_pattern.search(message) is None, item["name"]
+        assert "texto livre" not in message.lower(), item["name"]
+
+
+def test_seed_skip_message_is_in_portuguese_with_reset_hint(tmp_path: Path, capsys):
+    database = tmp_path / "seed.db"
+    seed_menus(database)
+    capsys.readouterr()
+
+    seed_menus(database)
+
+    output = capsys.readouterr().out
+    assert "--reset" in output
+    assert "already contains" not in output.lower()
+    assert "registros" in output.lower()

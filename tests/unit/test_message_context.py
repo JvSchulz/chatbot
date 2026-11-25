@@ -4,8 +4,8 @@ Testes unitários para extração e normalização de contexto de eventos WhatsA
 
 from unittest.mock import MagicMock
 from sqlmodel import Session
-from pywa.types import Message
-from pywa.types.base_update import User
+from pywa.types.message import Message
+from pywa.types.user import User
 from src.services.webhook.message_handler import (
     MessageContext,
     extract_callback_context,
